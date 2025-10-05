@@ -1,0 +1,104 @@
+.comment-item {
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 15px;
+  background: white;
+  transition: box-shadow 0.3s;
+}
+
+.comment-item:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.comment-header strong {
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.comment-header .email {
+  color: #7f8c8d;
+  font-size: 14px;
+}
+
+.comment-header a {
+  color: #3498db;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.comment-header a:hover {
+  text-decoration: underline;
+}
+
+.comment-header .date {
+  margin-left: auto;
+  color: #95a5a6;
+  font-size: 13px;
+}
+
+.comment-body {
+  margin: 15px 0;
+  line-height: 1.6;
+  color: #34495e;
+}
+
+.comment-body code {
+  background: #ecf0f1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+.comment-body strong {
+  font-weight: 700;
+}
+
+.comment-body i {
+  font-style: italic;
+}
+
+.comment-body a {
+  color: #3498db;
+  text-decoration: none;
+}
+
+.comment-body a:hover {
+  text-decoration: underline;
+}
+
+.comment-item > button {
+  padding: 8px 16px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-top: 10px;
+  transition: background 0.3s;
+}
+
+.comment-item > button:hover {
+  background: #2980b9;
+}
+
+.comment-replies {
+  margin-top: 20px;
+  margin-left: 30px;
+  padding-left: 20px;
+  border-left: 3px solid #3498db;
+}
+
+.comment-replies .comment-item {
+  background: #f8f9fa;
+}

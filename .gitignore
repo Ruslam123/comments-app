@@ -1,0 +1,20 @@
+# Backend
+backend/**/bin/
+backend/**/obj/
+backend/**/*.user
+backend/.vs/
+backend/**/.vs/
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.swp
