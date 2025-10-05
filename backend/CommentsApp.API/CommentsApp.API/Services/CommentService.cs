@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 using CommentsApp.Core.DTOs;
 using CommentsApp.Core.Entities;
 using CommentsApp.Core.Interfaces;
+using Microsoft.AspNetCore.SignalR;
+using CommentsApp.API.Hubs;
 
 namespace CommentsApp.API.Services;
 
@@ -11,21 +13,29 @@ public class CommentService
     private readonly IUserRepository _userRepository;
     private readonly ICacheService _cacheService;
     private readonly IQueueService _queueService;
+    private readonly IHubContext<CommentsHub> _hubContext;
     private static readonly string[] AllowedTags = { "a", "code", "i", "strong" };
     
-    public CommentService(ICommentRepository commentRepository, IUserRepository userRepository, 
-        ICacheService cacheService, IQueueService queueService)
+    public CommentService(
+        ICommentRepository commentRepository, 
+        IUserRepository userRepository, 
+        ICacheService cacheService, 
+        IQueueService queueService,
+        IHubContext<CommentsHub> hubContext)
     {
         _commentRepository = commentRepository;
         _userRepository = userRepository;
         _cacheService = cacheService;
         _queueService = queueService;
+        _hubContext = hubContext;
     }
     
     public async Task<PagedResult<CommentDto>> GetCommentsAsync(int page, int pageSize, string sortBy, bool ascending)
     {
         var cacheKey = $"comments:page:{page}:size:{pageSize}:sort:{sortBy}:asc:{ascending}";
         var cached = await _cacheService.GetAsync<PagedResult<CommentDto>>(cacheKey);
+        
+        // ВИПРАВЛЕНО: було "= null", має бути "!= null"
         if (cached != null) return cached;
         
         var result = await _commentRepository.GetTopLevelCommentsAsync(page, pageSize, sortBy, ascending);
@@ -72,36 +82,55 @@ public class CommentService
         };
         
         comment = await _commentRepository.AddCommentAsync(comment);
+        
+        // Публікація події в RabbitMQ
         await _queueService.PublishCommentCreatedAsync(comment.Id);
+        
+        // ДОДАНО: Відправка через SignalR
+        var commentDto = MapToDto(comment);
+        await _hubContext.Clients.All.SendAsync("ReceiveComment", commentDto);
+        
+        // Інвалідація кешу
         await InvalidateCache();
         
-        return MapToDto(comment);
+        return commentDto;
     }
     
     private string SanitizeHtml(string input)
     {
-        var pattern = @"^<^(/^?^)^(\\w+^)^([^>]*^)^>";
+        if (string.IsNullOrEmpty(input)) return input;
+        
+        // ВИПРАВЛЕНО: правильний regex для HTML тегів
+        var pattern = @"<(/?)(\w+)([^>]*)>";
+        
         return Regex.Replace(input, pattern, match =>
         {
             var isClosing = match.Groups[1].Value == "/";
             var tagName = match.Groups[2].Value.ToLower();
             var attributes = match.Groups[3].Value;
             
-            if (AllowedTags.Contains(tagName))
+            // Якщо тег не дозволений, видаляємо його
+            if (!AllowedTags.Contains(tagName))
                 return string.Empty;
             
-            if (tagName == "a" && isClosing)
+            // Для закриваючих тегів просто повертаємо їх
+            if (isClosing)
+                return $"</{tagName}>";
+            
+            // Для тегу <a> обробляємо атрибути
+            if (tagName == "a")
             {
-                var hrefMatch = Regex.Match(attributes, @"href\\s*=\\s*[""']^([^""']+^)[""']");
-                var titleMatch = Regex.Match(attributes, @"title\\s*=\\s*[""']^([^""']+^)[""']");
+                var hrefMatch = Regex.Match(attributes, @"href\s*=\s*[""']([^""']+)[""']");
+                var titleMatch = Regex.Match(attributes, @"title\s*=\s*[""']([^""']+)[""']");
                 
                 var href = hrefMatch.Success ? $"href=\"{System.Web.HttpUtility.HtmlEncode(hrefMatch.Groups[1].Value)}\"" : "";
                 var title = titleMatch.Success ? $" title=\"{System.Web.HttpUtility.HtmlEncode(titleMatch.Groups[1].Value)}\"" : "";
                 
-                return $"^<a {href}{title}^>";
+                return $"<a {href}{title}>";
             }
             
-            return $"^<{match.Groups[1].Value}{tagName}^>";
+            // Для інших дозволених тегів
+            return $"<{tagName}>";
         });
     }
     
@@ -124,6 +153,24 @@ public class CommentService
     
     private async Task InvalidateCache()
     {
-        await _cacheService.RemoveAsync("comments:*");
+        // Redis не підтримує wildcard delete, тому видаляємо ключі окремо
+        // В production краще використовувати Redis key patterns
+        for (int page = 1; page <= 10; page++)
+        {
+            var keys = new[]
+            {
+                $"comments:page:{page}:size:25:sort:createdAt:asc:false",
+                $"comments:page:{page}:size:25:sort:createdAt:asc:true",
+                $"comments:page:{page}:size:25:sort:userName:asc:false",
+                $"comments:page:{page}:size:25:sort:userName:asc:true",
+                $"comments:page:{page}:size:25:sort:email:asc:false",
+                $"comments:page:{page}:size:25:sort:email:asc:true"
+            };
+            
+            foreach (var key in keys)
+            {
+                await _cacheService.RemoveAsync(key);
+            }
+        }
     }
 }
