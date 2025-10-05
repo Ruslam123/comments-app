@@ -12,11 +12,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -25,11 +20,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -42,11 +32,6 @@ services:
       - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   backend:
     build: ./backend
@@ -57,20 +42,12 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=commentsdb;Username=postgres;Password=postgres123
       - ConnectionStrings__Redis=redis:6379
       - ConnectionStrings__RabbitMQ=amqp://guest:guest@rabbitmq:5672
-      - AllowedOrigins__0=http://localhost:3000
-      - AllowedOrigins__1=http://localhost
     ports:
       - "5000:5000"
-    volumes:
-      - uploads_data:/app/wwwroot/uploads
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    restart: unless-stopped
+      - postgres
+      - redis
+      - rabbitmq
 
   frontend:
     build:
@@ -81,10 +58,8 @@ services:
       - "3000:80"
     depends_on:
       - backend
-    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
-  uploads_data:

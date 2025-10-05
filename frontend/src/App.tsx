@@ -24,8 +24,6 @@ interface PagedResult {
   totalPages: number;
 }
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
 function App() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [page, setPage] = useState(1);
@@ -36,19 +34,14 @@ function App() {
 
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_URL}/hubs/comments`)
-      .withAutomaticReconnect()
+      .withUrl('http://localhost:5000/hubs/comments')
       .build();
 
-    connection.start()
-      .then(() => {
-        console.log('SignalR підключено');
-        connection.on('ReceiveComment', (comment: Comment) => {
-          console.log('Новий коментар через SignalR:', comment);
-          setComments(prev => [comment, ...prev]);
-        });
-      })
-      .catch(err => console.error('SignalR помилка:', err));
+    connection.start().then(() => {
+      connection.on('ReceiveComment', (comment: Comment) => {
+        setComments(prev => [comment, ...prev]);
+      });
+    });
 
     return () => {
       connection.stop();
@@ -63,13 +56,13 @@ function App() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`
+        `http://localhost:5000/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`
       );
       const data: PagedResult = await response.json();
       setComments(data.items);
       setTotalPages(data.totalPages);
     } catch (error) {
-      console.error('Помилка завантаження коментарів:', error);
+      console.error('Error loading comments:', error);
     } finally {
       setLoading(false);
     }
@@ -87,7 +80,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>💬 Комментарии</h1>
+        <h1>Комментарии</h1>
       </header>
       
       <main className="app-main">
@@ -116,14 +109,14 @@ function App() {
             onClick={() => setPage(p => Math.max(1, p - 1))} 
             disabled={page === 1}
           >
-            ← Назад
+            Назад
           </button>
           <span>Страница {page} из {totalPages}</span>
           <button 
             onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
             disabled={page === totalPages}
           >
-            Вперед →
+            Вперед
           </button>
         </div>
       </main>
