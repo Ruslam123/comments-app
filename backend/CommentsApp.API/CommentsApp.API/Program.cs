@@ -9,50 +9,40 @@ using CommentsApp.API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Парсинг DATABASE_URL для Railway
+// Парсинг DATABASE_URL для Railway/Render
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 string connectionString;
 
 if (!string.IsNullOrEmpty(databaseUrl))
 {
-    
     var uri = new Uri(databaseUrl);
-    connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password={uri.UserInfo.Split(':')[1]};SSL Mode=Require;Trust Server Certificate=true";
+    var userInfo = uri.UserInfo.Split(':');
+    connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={userInfo[0]};Password={userInfo[1]};SSL Mode=Require;Trust Server Certificate=true";
 }
 else
 {
     connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
 }
 
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// PostgreSQL
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-
+// Redis
 var redisUrl = Environment.GetEnvironmentVariable("REDIS_URL") 
     ?? builder.Configuration.GetConnectionString("Redis")!;
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisUrl));
 
-
+// RabbitMQ
 var rabbitMqUrl = Environment.GetEnvironmentVariable("RABBITMQ_URL") 
     ?? builder.Configuration.GetConnectionString("RabbitMQ")!;
 builder.Services.AddSingleton<IQueueService>(sp =>
     new RabbitMqService(rabbitMqUrl));
-
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis")!));
-
-builder.Services.AddSingleton<IQueueService>(sp =>
-    new RabbitMqService(builder.Configuration.GetConnectionString("RabbitMQ")!));
 
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -74,13 +64,14 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Створюємо папку uploads якщо не існує
+// Створюємо папку uploads
 var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
 if (!Directory.Exists(uploadsPath))
 {
     Directory.CreateDirectory(uploadsPath);
 }
 
+// Міграції
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -99,10 +90,7 @@ else
 }
 
 app.UseCors("AllowFrontend");
-
-// ВАЖЛИВО: Додаємо StaticFiles ПЕРЕД Authorization
 app.UseStaticFiles();
-
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
