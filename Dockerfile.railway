@@ -1,0 +1,22 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
+WORKDIR /src
+COPY backend/ .
+RUN dotnet restore CommentsApp.sln
+RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app/backend
+
+FROM node:18-alpine AS frontend-build
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci --only=production
+COPY frontend/ .
+RUN npm run build
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=backend-build /app/backend .
+COPY --from=frontend-build /app/build ./wwwroot
+RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+ENTRYPOINT ["dotnet", "CommentsApp.API.dll"]

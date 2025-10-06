@@ -9,6 +9,38 @@ using CommentsApp.API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Парсинг DATABASE_URL для Railway
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+string connectionString;
+
+if (!string.IsNullOrEmpty(databaseUrl))
+{
+    
+    var uri = new Uri(databaseUrl);
+    connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password={uri.UserInfo.Split(':')[1]};SSL Mode=Require;Trust Server Certificate=true";
+}
+else
+{
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
+}
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
+
+var redisUrl = Environment.GetEnvironmentVariable("REDIS_URL") 
+    ?? builder.Configuration.GetConnectionString("Redis")!;
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect(redisUrl));
+
+
+var rabbitMqUrl = Environment.GetEnvironmentVariable("RABBITMQ_URL") 
+    ?? builder.Configuration.GetConnectionString("RabbitMQ")!;
+builder.Services.AddSingleton<IQueueService>(sp =>
+    new RabbitMqService(rabbitMqUrl));
+
+var builder = WebApplication.CreateBuilder(args);
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
