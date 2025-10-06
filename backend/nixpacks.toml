@@ -1,0 +1,16 @@
+cd backend
+@"
+[phases.build]
+cmds = [
+  "dotnet restore CommentsApp.sln",
+  "dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app"
+]
+
+[start]
+cmd = "dotnet /app/CommentsApp.API.dll"
+"@ | Out-File -FilePath nixpacks.toml -Encoding UTF8
+
+cd ..
+git add backend/nixpacks.toml
+git commit -m "Add nixpacks config"
+git push
