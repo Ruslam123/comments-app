@@ -34,14 +34,18 @@ function App() {
 
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl('http://localhost:5000/hubs/comments')
+      .withUrl('/hubs/comments')
+      .withAutomaticReconnect()
       .build();
 
-    connection.start().then(() => {
-      connection.on('ReceiveComment', (comment: Comment) => {
-        setComments(prev => [comment, ...prev]);
-      });
-    });
+    connection.start()
+      .then(() => {
+        console.log('SignalR Connected');
+        connection.on('ReceiveComment', (comment: Comment) => {
+          setComments(prev => [comment, ...prev]);
+        });
+      })
+      .catch(err => console.error('SignalR Error:', err));
 
     return () => {
       connection.stop();
@@ -56,8 +60,13 @@ function App() {
     setLoading(true);
     try {
       const response = await fetch(
-        `http://localhost:5000/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`
+        `/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`
       );
+      
+      if (!response.ok) {
+        throw new Error('Failed to load comments');
+      }
+      
       const data: PagedResult = await response.json();
       setComments(data.items);
       setTotalPages(data.totalPages);
@@ -100,6 +109,8 @@ function App() {
 
         {loading ? (
           <div className="loading">Загрузка...</div>
+        ) : comments.length === 0 ? (
+          <div className="loading">Нет комментариев</div>
         ) : (
           <CommentList comments={comments} />
         )}

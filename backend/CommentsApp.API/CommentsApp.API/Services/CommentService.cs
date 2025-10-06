@@ -67,8 +67,7 @@ public class CommentService
             Id = Guid.NewGuid(),
             UserId = user.Id,
             ParentCommentId = dto.ParentCommentId,
-            Text = sanitizedText,
-            CreatedAt = DateTime.UtcNow
+            Text = sanitizedText, ImagePath = dto.ImagePath, TextFilePath = dto.TextFilePath, CreatedAt = DateTime.UtcNow
         };
         
         comment = await _commentRepository.AddCommentAsync(comment);
@@ -80,17 +79,16 @@ public class CommentService
     
     private string SanitizeHtml(string input)
     {
-        var pattern = @"^<^(/^?^)^(\\w+^)^([^>]*^)^>";
+        var pattern = @"<(/?)(\w+)([^>]*)>";
         return Regex.Replace(input, pattern, match =>
         {
             var isClosing = match.Groups[1].Value == "/";
             var tagName = match.Groups[2].Value.ToLower();
             var attributes = match.Groups[3].Value;
             
-            if (AllowedTags.Contains(tagName))
-                return string.Empty;
+            if (!AllowedTags.Contains(tagName)) return string.Empty;
             
-            if (tagName == "a" && isClosing)
+            if (tagName == "a" && !isClosing)
             {
                 var hrefMatch = Regex.Match(attributes, @"href\\s*=\\s*[""']^([^""']+^)[""']");
                 var titleMatch = Regex.Match(attributes, @"title\\s*=\\s*[""']^([^""']+^)[""']");
@@ -127,3 +125,9 @@ public class CommentService
         await _cacheService.RemoveAsync("comments:*");
     }
 }
+
+
+
+
+
+

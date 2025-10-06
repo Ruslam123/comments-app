@@ -16,103 +16,173 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
   const [captchaImage, setCaptchaImage] = useState('');
   const [preview, setPreview] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [textFile, setTextFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>('');
 
   useEffect(() => {
     loadCaptcha();
   }, []);
 
   const loadCaptcha = async () => {
-  const response = await fetch('http://localhost:5000/api/captcha');
-  const data = await response.json();
-  setCaptchaToken(data.token);
-  setCaptchaImage(data.code);
+    try {
+      const response = await fetch('/api/captcha');
+      const data = await response.json();
+      setCaptchaToken(data.token);
+      setCaptchaImage(data.code);
+    } catch (error) {
+      console.error('Error loading captcha:', error);
+    }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.match('image/(jpeg|jpg|png|gif)')) {
+        setErrors(prev => ({ ...prev, image: 'Дозволені тільки JPG, PNG, GIF' }));
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setErrors(prev => ({ ...prev, image: 'Файл занадто великий (макс. 5MB)' }));
+        return;
+      }
+      setImageFile(file);
+      setErrors(prev => ({ ...prev, image: '' }));
+      
+      const reader = new FileReader();
+      reader.onloadend = () => setImagePreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleTextFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.name.endsWith('.txt')) {
+        setErrors(prev => ({ ...prev, textFile: 'Дозволені тільки .txt файли' }));
+        return;
+      }
+      if (file.size > 100 * 1024) {
+        setErrors(prev => ({ ...prev, textFile: 'Файл занадто великий (макс. 100KB)' }));
+        return;
+      }
+      setTextFile(file);
+      setErrors(prev => ({ ...prev, textFile: '' }));
+    }
   };
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-
     if (!/^[a-zA-Z0-9]+$/.test(userName)) {
-      newErrors.userName = 'Только латинские буквы и цифры';
+      newErrors.userName = 'Тільки латинські літери та цифри';
     }
-
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = 'Неверный формат email';
+      newErrors.email = 'Невірний формат email';
     }
-
     if (homePage && !/^https?:\/\/.+/.test(homePage)) {
-      newErrors.homePage = 'Неверный формат URL';
+      newErrors.homePage = 'Невірний формат URL';
     }
-
     if (!text.trim()) {
-      newErrors.text = 'Текст обязателен';
+      newErrors.text = 'Текст обов\'язковий';
     }
-
     if (!captchaCode) {
-      newErrors.captcha = 'Введите CAPTCHA';
+      newErrors.captcha = 'Введіть CAPTCHA';
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handlePreview = async () => {
-    const response = await fetch('http://localhost:5000/api/comments/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
-    const data = await response.json();
-    setPreview(data.html);
+    try {
+      const response = await fetch('/api/comments/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await response.json();
+      setPreview(data.html);
+    } catch (error) {
+      console.error('Preview error:', error);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validateForm()) return;
-console.log('Sending data:', {
-    userName,
-    email,
-    homePage: homePage || null,
-    text,
-    captchaToken,
-    parentCommentId: parentId || null
-  });
 
-    const captchaValid = await fetch('http://localhost:5000/api/captcha/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: captchaToken, code: captchaCode })
-    });
-    const captchaResult = await captchaValid.json();
+    try {
+      const captchaValid = await fetch('/api/captcha/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: captchaToken, code: captchaCode })
+      });
+      const captchaResult = await captchaValid.json();
 
-    if (!captchaResult.valid) {
-      setErrors({ captcha: 'Неверный код CAPTCHA' });
-      loadCaptcha();
-      return;
-    }
+      if (!captchaResult.valid) {
+        setErrors({ captcha: 'Невірний код CAPTCHA' });
+        loadCaptcha();
+        return;
+      }
 
-    const response = await fetch('http://localhost:5000/api/comments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userName,
-        email,
-        homePage: homePage || null,
-        text,
-        captchaToken,
-        parentCommentId: parentId || null
-      })
-    });
+      let imageUrl = null;
+      let textFileUrl = null;
 
-    if (response.ok) {
-      setUserName('');
-      setEmail('');
-      setHomePage('');
-      setText('');
-      setCaptchaCode('');
-      setPreview('');
-      loadCaptcha();
-      onCommentAdded();
+      if (imageFile) {
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        const imgResponse = await fetch('/api/file/image', {
+          method: 'POST',
+          body: formData
+        });
+        if (imgResponse.ok) {
+          const imgData = await imgResponse.json();
+          imageUrl = imgData.url;
+        }
+      }
+
+      if (textFile) {
+        const formData = new FormData();
+        formData.append('file', textFile);
+        const txtResponse = await fetch('/api/file/text', {
+          method: 'POST',
+          body: formData
+        });
+        if (txtResponse.ok) {
+          const txtData = await txtResponse.json();
+          textFileUrl = txtData.url;
+        }
+      }
+
+      const response = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userName,
+          email,
+          homePage: homePage || null,
+          text,
+          captchaToken,
+          parentCommentId: parentId || null,
+          imagePath: imageUrl,
+          textFilePath: textFileUrl
+        })
+      });
+
+      if (response.ok) {
+        setUserName('');
+        setEmail('');
+        setHomePage('');
+        setText('');
+        setCaptchaCode('');
+        setPreview('');
+        setImageFile(null);
+        setTextFile(null);
+        setImagePreview('');
+        loadCaptcha();
+        onCommentAdded();
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
     }
   };
 
@@ -125,7 +195,7 @@ console.log('Sending data:', {
   return (
     <form className="comment-form" onSubmit={handleSubmit}>
       <div className="form-group">
-        <label>Имя пользователя *</label>
+        <label>Ім'я користувача *</label>
         <input
           type="text"
           value={userName}
@@ -147,7 +217,7 @@ console.log('Sending data:', {
       </div>
 
       <div className="form-group">
-        <label>Домашняя страница</label>
+        <label>Домашня сторінка</label>
         <input
           type="url"
           value={homePage}
@@ -157,7 +227,7 @@ console.log('Sending data:', {
       </div>
 
       <div className="form-group">
-        <label>Текст комментария *</label>
+        <label>Текст коментаря *</label>
         <div className="text-toolbar">
           <button type="button" onClick={() => insertTag('i')}>[i]</button>
           <button type="button" onClick={() => insertTag('strong')}>[strong]</button>
@@ -171,31 +241,76 @@ console.log('Sending data:', {
           required
         />
         {errors.text && <span className="error">{errors.text}</span>}
-        <button type="button" onClick={handlePreview}>Предпросмотр</button>
+        <button type="button" onClick={handlePreview}>Попередній перегляд</button>
       </div>
 
       {preview && (
         <div className="preview">
-          <h4>Предпросмотр:</h4>
+          <h4>Попередній перегляд:</h4>
           <div dangerouslySetInnerHTML={{ __html: preview }} />
         </div>
       )}
 
       <div className="form-group">
-  <label>CAPTCHA *</label>
-  <div style={{ padding: '10px', background: '#f0f0f0', fontSize: '24px', fontWeight: 'bold', letterSpacing: '5px' }}>
-    {captchaImage}
-  </div>
-  <input
-    type="text"
-    value={captchaCode}
-    onChange={(e) => setCaptchaCode(e.target.value)}
-    required
-  />
-  {errors.captcha && <span className="error">{errors.captcha}</span>}
-</div>
+        <label>Зображення (JPG, PNG, GIF - макс. 320x240)</label>
+        <input
+          type="file"
+          accept="image/jpeg,image/jpg,image/png,image/gif"
+          onChange={handleImageChange}
+        />
+        {errors.image && <span className="error">{errors.image}</span>}
+        {imagePreview && (
+          <div style={{ marginTop: '10px' }}>
+            <img
+              src={imagePreview}
+              alt="Preview"
+              style={{
+                maxWidth: '320px',
+                maxHeight: '240px',
+                border: '1px solid #ddd',
+                borderRadius: '4px'
+              }}
+            />
+          </div>
+        )}
+      </div>
 
-      <button type="submit" className="submit-btn">Отправить</button>
+      <div className="form-group">
+        <label>Текстовий файл (TXT - макс. 100KB)</label>
+        <input
+          type="file"
+          accept=".txt"
+          onChange={handleTextFileChange}
+        />
+        {errors.textFile && <span className="error">{errors.textFile}</span>}
+        {textFile && (
+          <div style={{ marginTop: '5px', color: '#27ae60' }}>
+            ✓ {textFile.name}
+          </div>
+        )}
+      </div>
+
+      <div className="form-group">
+        <label>CAPTCHA *</label>
+        <div style={{
+          padding: '10px',
+          background: '#f0f0f0',
+          fontSize: '24px',
+          fontWeight: 'bold',
+          letterSpacing: '5px'
+        }}>
+          {captchaImage}
+        </div>
+        <input
+          type="text"
+          value={captchaCode}
+          onChange={(e) => setCaptchaCode(e.target.value)}
+          required
+        />
+        {errors.captcha && <span className="error">{errors.captcha}</span>}
+      </div>
+
+      <button type="submit" className="submit-btn">Відправити</button>
     </form>
   );
 };

@@ -34,7 +34,7 @@ public class CommentsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<CommentDto>> CreateComment([FromBody] CreateCommentDto dto)
     {
-        if (ModelState.IsValid)
+        if (!ModelState.IsValid)
             return BadRequest(ModelState);
         
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

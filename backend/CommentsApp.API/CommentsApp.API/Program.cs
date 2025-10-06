@@ -60,3 +60,4 @@ app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
 
 app.Run();
+

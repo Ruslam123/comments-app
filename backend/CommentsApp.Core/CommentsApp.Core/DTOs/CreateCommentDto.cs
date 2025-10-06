@@ -8,4 +8,6 @@ public class CreateCommentDto
     public string CaptchaToken { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
     public Guid? ParentCommentId { get; set; }
+    public string? ImagePath { get; set; }
+    public string? TextFilePath { get; set; }
 }
