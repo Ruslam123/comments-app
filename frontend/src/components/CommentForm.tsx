@@ -19,6 +19,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [textFile, setTextFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     loadCaptcha();
@@ -73,21 +74,31 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!/^[a-zA-Z0-9]+$/.test(userName)) {
+    
+    if (!userName.trim()) {
+      newErrors.userName = "Ім'я обов'язкове";
+    } else if (!/^[a-zA-Z0-9]+$/.test(userName)) {
       newErrors.userName = 'Тільки латинські літери та цифри';
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    
+    if (!email.trim()) {
+      newErrors.email = 'Email обов\'язковий';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Невірний формат email';
     }
+    
     if (homePage && !/^https?:\/\/.+/.test(homePage)) {
-      newErrors.homePage = 'Невірний формат URL';
+      newErrors.homePage = 'Невірний формат URL (має починатися з http:// або https://)';
     }
+    
     if (!text.trim()) {
       newErrors.text = 'Текст обов\'язковий';
     }
-    if (!captchaCode) {
+    
+    if (!captchaCode.trim()) {
       newErrors.captcha = 'Введіть CAPTCHA';
     }
+    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -108,81 +119,133 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    
+    if (isSubmitting) return;
+    
+    if (!validateForm()) {
+      console.log('Validation failed:', errors);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
+      // Перевірка CAPTCHA
+      console.log('Validating captcha...');
       const captchaValid = await fetch('/api/captcha/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: captchaToken, code: captchaCode })
       });
+      
+      if (!captchaValid.ok) {
+        throw new Error('CAPTCHA validation failed');
+      }
+      
       const captchaResult = await captchaValid.json();
 
       if (!captchaResult.valid) {
         setErrors({ captcha: 'Невірний код CAPTCHA' });
         loadCaptcha();
+        setCaptchaCode('');
+        setIsSubmitting(false);
         return;
       }
+
+      console.log('Captcha validated successfully');
 
       let imageUrl = null;
       let textFileUrl = null;
 
+      // Завантаження зображення
       if (imageFile) {
+        console.log('Uploading image...');
         const formData = new FormData();
         formData.append('file', imageFile);
+        
         const imgResponse = await fetch('/api/file/image', {
           method: 'POST',
           body: formData
         });
-        if (imgResponse.ok) {
-          const imgData = await imgResponse.json();
-          imageUrl = imgData.url;
+        
+        if (!imgResponse.ok) {
+          const errorData = await imgResponse.json();
+          throw new Error(errorData.error || 'Помилка завантаження зображення');
         }
+        
+        const imgData = await imgResponse.json();
+        imageUrl = imgData.url;
+        console.log('Image uploaded:', imageUrl);
       }
 
+      // Завантаження текстового файлу
       if (textFile) {
+        console.log('Uploading text file...');
         const formData = new FormData();
         formData.append('file', textFile);
+        
         const txtResponse = await fetch('/api/file/text', {
           method: 'POST',
           body: formData
         });
-        if (txtResponse.ok) {
-          const txtData = await txtResponse.json();
-          textFileUrl = txtData.url;
+        
+        if (!txtResponse.ok) {
+          const errorData = await txtResponse.json();
+          throw new Error(errorData.error || 'Помилка завантаження текстового файлу');
         }
+        
+        const txtData = await txtResponse.json();
+        textFileUrl = txtData.url;
+        console.log('Text file uploaded:', textFileUrl);
       }
+
+      // Створення коментаря
+      console.log('Creating comment...');
+      const commentData = {
+        userName,
+        email,
+        homePage: homePage || null,
+        text,
+        captchaToken,
+        parentCommentId: parentId || null,
+        imagePath: imageUrl,
+        textFilePath: textFileUrl
+      };
+      
+      console.log('Comment data:', commentData);
 
       const response = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userName,
-          email,
-          homePage: homePage || null,
-          text,
-          captchaToken,
-          parentCommentId: parentId || null,
-          imagePath: imageUrl,
-          textFilePath: textFileUrl
-        })
+        body: JSON.stringify(commentData)
       });
 
-      if (response.ok) {
-        setUserName('');
-        setEmail('');
-        setHomePage('');
-        setText('');
-        setCaptchaCode('');
-        setPreview('');
-        setImageFile(null);
-        setTextFile(null);
-        setImagePreview('');
-        loadCaptcha();
-        onCommentAdded();
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`Помилка створення коментаря: ${response.status}`);
       }
+
+      console.log('Comment created successfully');
+
+      // Очищення форми
+      setUserName('');
+      setEmail('');
+      setHomePage('');
+      setText('');
+      setCaptchaCode('');
+      setPreview('');
+      setImageFile(null);
+      setTextFile(null);
+      setImagePreview('');
+      loadCaptcha();
+      onCommentAdded();
+
     } catch (error) {
       console.error('Submit error:', error);
+      setErrors({ submit: error instanceof Error ? error.message : 'Помилка відправки' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -194,6 +257,18 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   return (
     <form className="comment-form" onSubmit={handleSubmit}>
+      {errors.submit && (
+        <div style={{ 
+          padding: '10px', 
+          background: '#fee', 
+          color: '#c33', 
+          borderRadius: '4px',
+          marginBottom: '15px' 
+        }}>
+          {errors.submit}
+        </div>
+      )}
+
       <div className="form-group">
         <label>Ім'я користувача *</label>
         <input
@@ -201,6 +276,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           value={userName}
           onChange={(e) => setUserName(e.target.value)}
           required
+          disabled={isSubmitting}
         />
         {errors.userName && <span className="error">{errors.userName}</span>}
       </div>
@@ -212,6 +288,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          disabled={isSubmitting}
         />
         {errors.email && <span className="error">{errors.email}</span>}
       </div>
@@ -222,6 +299,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           type="url"
           value={homePage}
           onChange={(e) => setHomePage(e.target.value)}
+          placeholder="https://example.com"
+          disabled={isSubmitting}
         />
         {errors.homePage && <span className="error">{errors.homePage}</span>}
       </div>
@@ -229,19 +308,22 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
       <div className="form-group">
         <label>Текст коментаря *</label>
         <div className="text-toolbar">
-          <button type="button" onClick={() => insertTag('i')}>[i]</button>
-          <button type="button" onClick={() => insertTag('strong')}>[strong]</button>
-          <button type="button" onClick={() => insertTag('code')}>[code]</button>
-          <button type="button" onClick={() => insertTag('a')}>[a]</button>
+          <button type="button" onClick={() => insertTag('i')} disabled={isSubmitting}>[i]</button>
+          <button type="button" onClick={() => insertTag('strong')} disabled={isSubmitting}>[strong]</button>
+          <button type="button" onClick={() => insertTag('code')} disabled={isSubmitting}>[code]</button>
+          <button type="button" onClick={() => insertTag('a')} disabled={isSubmitting}>[a]</button>
         </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={5}
           required
+          disabled={isSubmitting}
         />
         {errors.text && <span className="error">{errors.text}</span>}
-        <button type="button" onClick={handlePreview}>Попередній перегляд</button>
+        <button type="button" onClick={handlePreview} disabled={isSubmitting}>
+          Попередній перегляд
+        </button>
       </div>
 
       {preview && (
@@ -257,6 +339,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           type="file"
           accept="image/jpeg,image/jpg,image/png,image/gif"
           onChange={handleImageChange}
+          disabled={isSubmitting}
         />
         {errors.image && <span className="error">{errors.image}</span>}
         {imagePreview && (
@@ -281,6 +364,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           type="file"
           accept=".txt"
           onChange={handleTextFileChange}
+          disabled={isSubmitting}
         />
         {errors.textFile && <span className="error">{errors.textFile}</span>}
         {textFile && (
@@ -297,7 +381,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           background: '#f0f0f0',
           fontSize: '24px',
           fontWeight: 'bold',
-          letterSpacing: '5px'
+          letterSpacing: '5px',
+          marginBottom: '10px'
         }}>
           {captchaImage}
         </div>
@@ -306,11 +391,15 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
           value={captchaCode}
           onChange={(e) => setCaptchaCode(e.target.value)}
           required
+          disabled={isSubmitting}
+          placeholder="Введіть код з картинки"
         />
         {errors.captcha && <span className="error">{errors.captcha}</span>}
       </div>
 
-      <button type="submit" className="submit-btn">Відправити</button>
+      <button type="submit" className="submit-btn" disabled={isSubmitting}>
+        {isSubmitting ? 'Відправка...' : 'Відправити'}
+      </button>
     </form>
   );
 };

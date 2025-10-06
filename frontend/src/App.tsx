@@ -13,6 +13,7 @@ interface Comment {
   imageUrl?: string;
   textFileUrl?: string;
   createdAt: string;
+  parentCommentId?: string;
   replies: Comment[];
 }
 
@@ -42,7 +43,15 @@ function App() {
       .then(() => {
         console.log('SignalR Connected');
         connection.on('ReceiveComment', (comment: Comment) => {
-          setComments(prev => [comment, ...prev]);
+          console.log('Received new comment:', comment);
+          
+          // Якщо це головний коментар і ми на першій сторінці
+          if (!comment.parentCommentId && page === 1) {
+            setComments(prev => [comment, ...prev].slice(0, 25));
+          } else if (comment.parentCommentId) {
+            // Якщо це відповідь, додаємо до відповідного коментаря
+            setComments(prev => addReplyToComment(prev, comment));
+          }
         });
       })
       .catch(err => console.error('SignalR Error:', err));
@@ -50,7 +59,25 @@ function App() {
     return () => {
       connection.stop();
     };
-  }, []);
+  }, [page]);
+
+  const addReplyToComment = (comments: Comment[], reply: Comment): Comment[] => {
+    return comments.map(comment => {
+      if (comment.id === reply.parentCommentId) {
+        return {
+          ...comment,
+          replies: [...comment.replies, reply]
+        };
+      }
+      if (comment.replies.length > 0) {
+        return {
+          ...comment,
+          replies: addReplyToComment(comment.replies, reply)
+        };
+      }
+      return comment;
+    });
+  };
 
   useEffect(() => {
     loadComments();

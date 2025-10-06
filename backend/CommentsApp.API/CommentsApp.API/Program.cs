@@ -42,6 +42,13 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Створюємо папку uploads якщо не існує
+var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+if (!Directory.Exists(uploadsPath))
+{
+    Directory.CreateDirectory(uploadsPath);
+}
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -52,12 +59,20 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
 }
 
 app.UseCors("AllowFrontend");
+
+// ВАЖЛИВО: Додаємо StaticFiles ПЕРЕД Authorization
+app.UseStaticFiles();
+
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
 
 app.Run();
-

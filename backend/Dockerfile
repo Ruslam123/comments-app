@@ -8,6 +8,9 @@ RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Rel
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/publish .
+
+RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
+
 EXPOSE 5000
 ENV ASPNETCORE_URLS=http://+:5000
 ENTRYPOINT ["dotnet", "CommentsApp.API.dll"]

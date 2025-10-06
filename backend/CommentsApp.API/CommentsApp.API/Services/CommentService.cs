@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 using CommentsApp.Core.DTOs;
 using CommentsApp.Core.Entities;
 using CommentsApp.Core.Interfaces;
+using Microsoft.AspNetCore.SignalR;
+using CommentsApp.API.Hubs;
 
 namespace CommentsApp.API.Services;
 
@@ -11,15 +13,21 @@ public class CommentService
     private readonly IUserRepository _userRepository;
     private readonly ICacheService _cacheService;
     private readonly IQueueService _queueService;
+    private readonly IHubContext<CommentsHub> _hubContext;
     private static readonly string[] AllowedTags = { "a", "code", "i", "strong" };
     
-    public CommentService(ICommentRepository commentRepository, IUserRepository userRepository, 
-        ICacheService cacheService, IQueueService queueService)
+    public CommentService(
+        ICommentRepository commentRepository, 
+        IUserRepository userRepository, 
+        ICacheService cacheService, 
+        IQueueService queueService,
+        IHubContext<CommentsHub> hubContext)
     {
         _commentRepository = commentRepository;
         _userRepository = userRepository;
         _cacheService = cacheService;
         _queueService = queueService;
+        _hubContext = hubContext;
     }
     
     public async Task<PagedResult<CommentDto>> GetCommentsAsync(int page, int pageSize, string sortBy, bool ascending)
@@ -67,44 +75,66 @@ public class CommentService
             Id = Guid.NewGuid(),
             UserId = user.Id,
             ParentCommentId = dto.ParentCommentId,
-            Text = sanitizedText, ImagePath = dto.ImagePath, TextFilePath = dto.TextFilePath, CreatedAt = DateTime.UtcNow
+            Text = sanitizedText,
+            ImagePath = dto.ImagePath,
+            TextFilePath = dto.TextFilePath,
+            CreatedAt = DateTime.UtcNow
         };
         
         comment = await _commentRepository.AddCommentAsync(comment);
+        
+        // Відправляємо подію через SignalR
+        var commentDto = MapToDto(comment);
+        await _hubContext.Clients.All.SendAsync("ReceiveComment", commentDto);
+        
         await _queueService.PublishCommentCreatedAsync(comment.Id);
         await InvalidateCache();
         
-        return MapToDto(comment);
+        return commentDto;
     }
     
     private string SanitizeHtml(string input)
     {
-        var pattern = @"<(/?)(\w+)([^>]*)>";
-        return Regex.Replace(input, pattern, match =>
+        // Спочатку екрануємо всі HTML символи
+        var sanitized = System.Web.HttpUtility.HtmlEncode(input);
+        
+        // Тепер дозволяємо тільки безпечні теги
+        var pattern = @"&lt;(/?)(\w+)(.*?)&gt;";
+        
+        sanitized = Regex.Replace(sanitized, pattern, match =>
         {
             var isClosing = match.Groups[1].Value == "/";
             var tagName = match.Groups[2].Value.ToLower();
             var attributes = match.Groups[3].Value;
             
-            if (!AllowedTags.Contains(tagName)) return string.Empty;
+            if (!AllowedTags.Contains(tagName))
+                return string.Empty;
             
             if (tagName == "a" && !isClosing)
             {
-                var hrefMatch = Regex.Match(attributes, @"href\\s*=\\s*[""']^([^""']+^)[""']");
-                var titleMatch = Regex.Match(attributes, @"title\\s*=\\s*[""']^([^""']+^)[""']");
+                // Обробляємо атрибути посилання
+                var hrefMatch = Regex.Match(attributes, @"href\s*=\s*&quot;([^&]+)&quot;");
+                var titleMatch = Regex.Match(attributes, @"title\s*=\s*&quot;([^&]+)&quot;");
                 
-                var href = hrefMatch.Success ? $"href=\"{System.Web.HttpUtility.HtmlEncode(hrefMatch.Groups[1].Value)}\"" : "";
-                var title = titleMatch.Success ? $" title=\"{System.Web.HttpUtility.HtmlEncode(titleMatch.Groups[1].Value)}\"" : "";
+                var href = hrefMatch.Success ? $"href=\"{hrefMatch.Groups[1].Value}\"" : "";
+                var title = titleMatch.Success ? $" title=\"{titleMatch.Groups[1].Value}\"" : "";
                 
-                return $"^<a {href}{title}^>";
+                return $"<a {href}{title}>";
             }
             
-            return $"^<{match.Groups[1].Value}{tagName}^>";
+            return $"<{match.Groups[1].Value}{tagName}>";
         });
+        
+        return sanitized;
     }
     
     private CommentDto MapToDto(Comment comment)
     {
+        if (comment.User == null)
+        {
+            throw new InvalidOperationException($"Comment {comment.Id} does not have User loaded");
+        }
+        
         return new CommentDto
         {
             Id = comment.Id,
@@ -116,18 +146,14 @@ public class CommentService
             TextFileUrl = comment.TextFilePath,
             CreatedAt = comment.CreatedAt,
             ParentCommentId = comment.ParentCommentId,
-            Replies = comment.Replies.Select(MapToDto).ToList()
+            Replies = comment.Replies?.Select(MapToDto).ToList() ?? new List<CommentDto>()
         };
     }
     
     private async Task InvalidateCache()
     {
-        await _cacheService.RemoveAsync("comments:*");
+        // Redis не підтримує wildcard видалення через StackExchange.Redis
+        // Тому просто очищуємо кеш через TTL
+        await Task.CompletedTask;
     }
 }
-
-
-
-
-
-
