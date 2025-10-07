@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import './CommentForm.css';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 interface CommentFormProps {
   onCommentAdded: () => void;
   parentId?: string;
 }
-
 const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) => {
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
@@ -27,7 +28,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   const loadCaptcha = async () => {
     try {
-      const response = await fetch('/api/captcha');
+      const response = await fetch(`${API_URL}/api/captcha`);
+      if (!response.ok) throw new Error('Failed to load captcha');
       const data = await response.json();
       setCaptchaToken(data.token);
       setCaptchaImage(data.code);

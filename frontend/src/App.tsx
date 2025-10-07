@@ -25,6 +25,11 @@ interface PagedResult {
   totalPages: number;
 }
 
+// ВАЖЛИВО: Отримуємо API URL з environment
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+console.log('API_URL:', API_URL); // Для дебагу
+
 function App() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [page, setPage] = useState(1);
@@ -32,11 +37,17 @@ function App() {
   const [sortBy, setSortBy] = useState('createdAt');
   const [ascending, setAscending] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // SignalR з обробкою помилок
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl('/hubs/comments')
+      .withUrl(`${API_URL}/hubs/comments`, {
+        skipNegotiation: false,
+        transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.ServerSentEvents | signalR.HttpTransportType.LongPolling
+      })
       .withAutomaticReconnect()
+      .configureLogging(signalR.LogLevel.Information)
       .build();
 
     connection.start()
@@ -45,19 +56,20 @@ function App() {
         connection.on('ReceiveComment', (comment: Comment) => {
           console.log('Received new comment:', comment);
           
-          // Якщо це головний коментар і ми на першій сторінці
           if (!comment.parentCommentId && page === 1) {
             setComments(prev => [comment, ...prev].slice(0, 25));
           } else if (comment.parentCommentId) {
-            // Якщо це відповідь, додаємо до відповідного коментаря
             setComments(prev => addReplyToComment(prev, comment));
           }
         });
       })
-      .catch(err => console.error('SignalR Error:', err));
+      .catch(err => {
+        console.error('SignalR Error:', err);
+        // Не блокуємо застосунок якщо SignalR не працює
+      });
 
     return () => {
-      connection.stop();
+      connection.stop().catch(err => console.error('SignalR disconnect error:', err));
     };
   }, [page]);
 
@@ -85,13 +97,33 @@ function App() {
 
   const loadComments = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
+      console.log('Loading comments from:', `${API_URL}/api/comments`);
+      
       const response = await fetch(
-        `/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`
+        `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
       );
       
       if (!response.ok) {
-        throw new Error('Failed to load comments');
+        const text = await response.text();
+        console.error('Response error:', text);
+        throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Invalid content-type:', contentType);
+        console.error('Response:', text.substring(0, 200));
+        throw new Error('Server returned HTML instead of JSON. Check API URL.');
       }
       
       const data: PagedResult = await response.json();
@@ -99,6 +131,7 @@ function App() {
       setTotalPages(data.totalPages);
     } catch (error) {
       console.error('Error loading comments:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -117,27 +150,40 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>Комментарии</h1>
+        <small>API: {API_URL}</small>
       </header>
       
       <main className="app-main">
+        {error && (
+          <div style={{
+            padding: '15px',
+            background: '#fee',
+            color: '#c33',
+            borderRadius: '5px',
+            marginBottom: '20px'
+          }}>
+            <strong>Помилка:</strong> {error}
+          </div>
+        )}
+        
         <CommentForm onCommentAdded={loadComments} />
         
         <div className="sort-controls">
           <button onClick={() => handleSort('userName')}>
-            Сортировать по имени {sortBy === 'userName' && (ascending ? '↑' : '↓')}
+            Сортувати по імені {sortBy === 'userName' && (ascending ? '↑' : '↓')}
           </button>
           <button onClick={() => handleSort('email')}>
-            Сортировать по email {sortBy === 'email' && (ascending ? '↑' : '↓')}
+            Сортувати по email {sortBy === 'email' && (ascending ? '↑' : '↓')}
           </button>
           <button onClick={() => handleSort('createdAt')}>
-            Сортировать по дате {sortBy === 'createdAt' && (ascending ? '↑' : '↓')}
+            Сортувати по даті {sortBy === 'createdAt' && (ascending ? '↑' : '↓')}
           </button>
         </div>
 
         {loading ? (
-          <div className="loading">Загрузка...</div>
+          <div className="loading">Завантаження...</div>
         ) : comments.length === 0 ? (
-          <div className="loading">Нет комментариев</div>
+          <div className="loading">Немає коментарів</div>
         ) : (
           <CommentList comments={comments} />
         )}
@@ -149,7 +195,7 @@ function App() {
           >
             Назад
           </button>
-          <span>Страница {page} из {totalPages}</span>
+          <span>Сторінка {page} з {totalPages}</span>
           <button 
             onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
             disabled={page === totalPages}
