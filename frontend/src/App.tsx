@@ -26,7 +26,7 @@ interface PagedResult {
 }
 
 // ВАЖЛИВО: Отримуємо API URL з environment
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://lovely-achievement-production.up.railway.app';
 
 console.log('API_URL:', API_URL); // Для дебагу
 
