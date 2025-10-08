@@ -42,6 +42,7 @@ function App() {
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(`${API_URL}/hubs/comments`, {
         skipNegotiation: false,
+        withCredentials: true, // ВКЛЮЧЕНО для роботи з новим CORS
         transport: signalR.HttpTransportType.WebSockets | 
                    signalR.HttpTransportType.ServerSentEvents | 
                    signalR.HttpTransportType.LongPolling
@@ -110,6 +111,7 @@ function App() {
               'Accept': 'application/json',
             },
             mode: 'cors',
+            credentials: 'include' // ВКЛЮЧЕНО для роботи з новим CORS
           }
         );
         
