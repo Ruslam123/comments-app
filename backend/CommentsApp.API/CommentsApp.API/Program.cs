@@ -125,14 +125,16 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
             "http://localhost:3000",
-            "https://lovely-achievement-production.up.railway.app",  // Додайте це
-            "https://lovely-achievement-production.up.railway.vercel.app"           // Для preview деплоїв
+            "https://localhost:3000",
+            "https://*.vercel.app",
+            "https://vercel.app"
         )
+        .SetIsOriginAllowedToAllowWildcardSubdomains()
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials();
     });
-});;
+});
 
 var app = builder.Build();
 
