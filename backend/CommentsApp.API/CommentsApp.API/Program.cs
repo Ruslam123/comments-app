@@ -121,18 +121,11 @@ builder.Services.AddSignalR(options =>
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(
-            "http://localhost:3000",
-            "https://localhost:3000",
-            "https://*.vercel.app",
-            "https://vercel.app"
-        )
-        .SetIsOriginAllowedToAllowWildcardSubdomains()
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials();
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
@@ -178,16 +171,20 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowFrontend");
 app.Use(async (context, next) =>
 {
+    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
+    
     if (context.Request.Method == "OPTIONS")
     {
-        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
         context.Response.StatusCode = 200;
         return;
     }
+    
     await next();
 });
+
+app.UseCors();
 
 app.UseStaticFiles();
 app.UseAuthorization();
