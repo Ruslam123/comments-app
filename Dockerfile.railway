@@ -1,21 +1,35 @@
+# Stage 1: Build Backend
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
 WORKDIR /src
 COPY backend/ .
 RUN dotnet restore CommentsApp.sln
 RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app/backend
+RUN echo "Backend build completed" && ls -la /app/backend
 
+# Stage 2: Build Frontend
 FROM node:18-alpine AS frontend-build
 WORKDIR /app
 COPY frontend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 COPY frontend/ .
-RUN npm run build
+RUN echo "Building React app..." && npm run build
+RUN echo "Frontend build completed. Contents:" && ls -la /app/build
 
+# Stage 3: Final image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
+
+# Copy backend
 COPY --from=backend-build /app/backend .
+
+# Copy frontend to wwwroot
 COPY --from=frontend-build /app/build ./wwwroot
-RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
+
+# Verify wwwroot contents
+RUN echo "Checking wwwroot contents:" && ls -la ./wwwroot || echo "wwwroot is empty!"
+
+# Create uploads directory
+RUN mkdir -p ./wwwroot/uploads && chmod 777 ./wwwroot/uploads
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
