@@ -157,6 +157,20 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 
+// Перевірка wwwroot
+var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+Console.WriteLine($"Checking wwwroot at: {wwwrootPath}");
+Console.WriteLine($"wwwroot exists: {Directory.Exists(wwwrootPath)}");
+if (Directory.Exists(wwwrootPath))
+{
+    var files = Directory.GetFiles(wwwrootPath);
+    Console.WriteLine($"Files in wwwroot: {files.Length}");
+    foreach (var file in files.Take(10))
+    {
+        Console.WriteLine($"  - {Path.GetFileName(file)}");
+    }
+}
+
 // ВАЖЛИВО: Static files для React
 app.UseDefaultFiles();
 app.UseStaticFiles();

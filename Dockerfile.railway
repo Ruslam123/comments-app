@@ -1,35 +1,45 @@
-# Stage 1: Build Backend
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
-WORKDIR /src
-COPY backend/ .
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+# Встановлюємо Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    node --version && npm --version
+
+WORKDIR /build
+
+# Копіюємо все
+COPY . .
+
+# Будуємо backend
+WORKDIR /build/backend
 RUN dotnet restore CommentsApp.sln
-RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app/backend
-RUN echo "Backend build completed" && ls -la /app/backend
+RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app
 
-# Stage 2: Build Frontend
-FROM node:18-alpine AS frontend-build
-WORKDIR /app
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ .
-RUN echo "Building React app..." && npm run build
-RUN echo "Frontend build completed. Contents:" && ls -la /app/build
+# Будуємо frontend
+WORKDIR /build/frontend
+RUN npm install
+RUN npm run build
+RUN echo "=== Frontend build contents ===" && ls -la build/
 
-# Stage 3: Final image
+# Копіюємо frontend в wwwroot
+RUN mkdir -p /app/wwwroot && \
+    cp -r build/* /app/wwwroot/ && \
+    echo "=== wwwroot contents ===" && \
+    ls -la /app/wwwroot/
+
+# Final stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
+COPY --from=build /app .
 
-# Copy backend
-COPY --from=backend-build /app/backend .
+# Перевіряємо що все скопіювалось
+RUN echo "=== Final check ===" && \
+    ls -la /app/ && \
+    echo "=== wwwroot check ===" && \
+    ls -la /app/wwwroot/ && \
+    test -f /app/wwwroot/index.html && echo "✅ index.html exists" || echo "❌ index.html missing"
 
-# Copy frontend to wwwroot
-COPY --from=frontend-build /app/build ./wwwroot
-
-# Verify wwwroot contents
-RUN echo "Checking wwwroot contents:" && ls -la ./wwwroot || echo "wwwroot is empty!"
-
-# Create uploads directory
-RUN mkdir -p ./wwwroot/uploads && chmod 777 ./wwwroot/uploads
+RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
