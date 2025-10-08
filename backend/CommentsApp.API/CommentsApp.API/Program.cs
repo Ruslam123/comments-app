@@ -101,39 +101,49 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS - КРИТИЧНО ВАЖЛИВО ===
+// === CORS - МАКСИМАЛЬНО ВІДКРИТИЙ ===
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .WithExposedHeaders("*");
     });
 });
 
 var app = builder.Build();
 
+// Логування для дебагу
+Console.WriteLine("=== APPLICATION STARTING ===");
+Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
+Console.WriteLine($"CORS Policy: AllowAll (AllowAnyOrigin)");
+
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
-    environment = app.Environment.EnvironmentName
+    environment = app.Environment.EnvironmentName,
+    cors = "enabled"
 }));
 
 app.MapGet("/", () => Results.Ok(new
 {
     name = "Comments API",
     version = "1.0.0",
-    status = "running"
+    status = "running",
+    cors = "AllowAll policy active"
 }));
 
 // Міграції
 try
 {
+    Console.WriteLine("Running database migrations...");
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     await db.Database.MigrateAsync();
+    Console.WriteLine("Migrations completed successfully");
 }
 catch (Exception ex)
 {
@@ -146,13 +156,31 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// ВАЖЛИВО: CORS має бути ПЕРШИМ middleware
+// КРИТИЧНО: Додатковий middleware для CORS заголовків
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
+    
+    if (context.Request.Method == "OPTIONS")
+    {
+        context.Response.StatusCode = 200;
+        return;
+    }
+    
+    await next();
+});
+
+// ВАЖЛИВО: CORS middleware має бути ПЕРШИМ
 app.UseCors("AllowAll");
 app.UseStaticFiles();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
 
+Console.WriteLine("=== APPLICATION STARTED ===");
+Console.WriteLine("CORS is configured to allow all origins");
 app.Run();
 
 public class DummyCacheService : ICacheService
