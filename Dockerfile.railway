@@ -1,46 +1,53 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0
 
 # Встановлюємо Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+RUN apt-get update && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
-    node --version && npm --version
+    rm -rf /var/lib/apt/lists/* && \
+    echo "Node version:" && node --version && \
+    echo "NPM version:" && npm --version
 
-WORKDIR /build
+WORKDIR /src
 
-# Копіюємо все
-COPY . .
+# Копіюємо backend
+COPY backend/ ./backend/
 
 # Будуємо backend
-WORKDIR /build/backend
+WORKDIR /src/backend
 RUN dotnet restore CommentsApp.sln
 RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app
+RUN echo "Backend published to /app" && ls -la /app
+
+# Копіюємо frontend
+WORKDIR /src/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
 
 # Будуємо frontend
-WORKDIR /build/frontend
-RUN npm install
 RUN npm run build
-RUN echo "=== Frontend build contents ===" && ls -la build/
+RUN echo "Frontend build completed:" && ls -la ./build
 
 # Копіюємо frontend в wwwroot
 RUN mkdir -p /app/wwwroot && \
-    cp -r build/* /app/wwwroot/ && \
-    echo "=== wwwroot contents ===" && \
-    ls -la /app/wwwroot/
+    cp -rv ./build/* /app/wwwroot/ && \
+    echo "Copied to wwwroot:" && ls -la /app/wwwroot
 
-# Final stage
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
-WORKDIR /app
-COPY --from=build /app .
-
-# Перевіряємо що все скопіювалось
-RUN echo "=== Final check ===" && \
-    ls -la /app/ && \
-    echo "=== wwwroot check ===" && \
-    ls -la /app/wwwroot/ && \
-    test -f /app/wwwroot/index.html && echo "✅ index.html exists" || echo "❌ index.html missing"
-
+# Створюємо папку uploads
 RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
 
+# Перевірка
+RUN if [ -f "/app/wwwroot/index.html" ]; then \
+        echo "✅ SUCCESS: index.html exists in wwwroot"; \
+    else \
+        echo "❌ ERROR: index.html NOT FOUND in wwwroot"; \
+        exit 1; \
+    fi
+
+WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
 ENTRYPOINT ["dotnet", "CommentsApp.API.dll"]
