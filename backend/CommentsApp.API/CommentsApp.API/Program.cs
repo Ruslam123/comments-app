@@ -101,7 +101,7 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS - ПРОСТИЙ ВАРІАНТ БЕЗ CREDENTIALS ===
+// === CORS ===
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -118,6 +118,7 @@ Console.WriteLine("=== APPLICATION STARTING ===");
 Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
 Console.WriteLine("CORS Policy: AllowAnyOrigin (no credentials)");
 
+// Health endpoint
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
@@ -126,14 +127,15 @@ app.MapGet("/health", () => Results.Ok(new
     cors = "no-credentials"
 }));
 
-app.MapGet("/", () => Results.Ok(new
+// API info endpoint
+app.MapGet("/api", () => Results.Ok(new
 {
     name = "Comments API",
     version = "1.0.0",
     status = "running"
 }));
 
-// Міграції
+// === Міграції ===
 try
 {
     Console.WriteLine("Running database migrations...");
@@ -153,14 +155,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// ВАЖЛИВО: CORS має бути ПЕРШИМ
 app.UseCors("AllowAll");
+
+// ВАЖЛИВО: Static files для React
+app.UseDefaultFiles();
 app.UseStaticFiles();
+
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
 
+// КРИТИЧНО: Fallback на index.html для React Router
+app.MapFallbackToFile("index.html");
+
 Console.WriteLine("=== APPLICATION STARTED ===");
+Console.WriteLine("Serving React SPA from wwwroot");
 app.Run();
 
 public class DummyCacheService : ICacheService
