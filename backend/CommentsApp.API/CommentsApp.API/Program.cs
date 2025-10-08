@@ -101,15 +101,14 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS - ВИПРАВЛЕНО для SignalR з credentials ===
+// === CORS - ПРОСТИЙ ВАРІАНТ БЕЗ CREDENTIALS ===
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.SetIsOriginAllowed(origin => true) // Дозволити будь-який origin
+        policy.AllowAnyOrigin()
               .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials(); // ВАЖЛИВО для SignalR
+              .AllowAnyHeader();
     });
 });
 
@@ -117,22 +116,21 @@ var app = builder.Build();
 
 Console.WriteLine("=== APPLICATION STARTING ===");
 Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
-Console.WriteLine("CORS Policy: AllowAll with Credentials");
+Console.WriteLine("CORS Policy: AllowAnyOrigin (no credentials)");
 
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
     environment = app.Environment.EnvironmentName,
-    cors = "enabled-with-credentials"
+    cors = "no-credentials"
 }));
 
 app.MapGet("/", () => Results.Ok(new
 {
     name = "Comments API",
     version = "1.0.0",
-    status = "running",
-    cors = "AllowAll with credentials"
+    status = "running"
 }));
 
 // Міграції
