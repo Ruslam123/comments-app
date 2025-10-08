@@ -96,46 +96,51 @@ function App() {
   }, [page, sortBy, ascending]);
 
   const loadComments = async () => {
-    setLoading(true);
-    setError(null);
-    
+  setLoading(true);
+  setError(null);
+  
+  // Спроба 1
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      console.log('Loading comments from:', `${API_URL}/api/comments`);
+      console.log(`Loading comments (attempt ${attempt})...`);
       
       const response = await fetch(
         `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
         {
+          method: 'GET',
           headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json'
-          }
+          },
+          mode: 'cors',
+          credentials: 'omit'
         }
       );
       
       if (!response.ok) {
-        const text = await response.text();
-        console.error('Response error:', text);
-        throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('Invalid content-type:', contentType);
-        console.error('Response:', text.substring(0, 200));
-        throw new Error('Server returned HTML instead of JSON. Check API URL.');
+        throw new Error(`HTTP ${response.status}`);
       }
       
       const data: PagedResult = await response.json();
       setComments(data.items);
       setTotalPages(data.totalPages);
+      return; // Успіх - виходимо
+      
     } catch (error) {
-      console.error('Error loading comments:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
+      console.error(`Attempt ${attempt} failed:`, error);
+      
+      if (attempt === 3) {
+        // Остання спроба
+        setError(`Не вдалося підключитися до API після 3 спроб. Перевірте що backend запущений: ${API_URL}`);
+      } else {
+        // Почекати перед наступною спробою
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }
+};
 
   const handleSort = (field: string) => {
     if (sortBy === field) {
