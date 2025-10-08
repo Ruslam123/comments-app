@@ -25,10 +25,9 @@ interface PagedResult {
   totalPages: number;
 }
 
-// ВАЖЛИВО: Отримуємо API URL з environment
 const API_URL = process.env.REACT_APP_API_URL || 'https://lovely-achievement-production.up.railway.app';
 
-console.log('API_URL:', API_URL); // Для дебагу
+console.log('API_URL:', API_URL);
 
 function App() {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -39,40 +38,39 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-useEffect(() => {
-  const connection = new signalR.HubConnectionBuilder()
-    .withUrl(`${API_URL}/hubs/comments`, {
-      skipNegotiation: false,
-      withCredentials: false, // ЗМІНЕНО: вимкнути credentials
-      transport: signalR.HttpTransportType.WebSockets | 
-                 signalR.HttpTransportType.ServerSentEvents | 
-                 signalR.HttpTransportType.LongPolling
-    })
-    .withAutomaticReconnect()
-    .configureLogging(signalR.LogLevel.Information)
-    .build();
+  useEffect(() => {
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(`${API_URL}/hubs/comments`, {
+        skipNegotiation: false,
+        transport: signalR.HttpTransportType.WebSockets | 
+                   signalR.HttpTransportType.ServerSentEvents | 
+                   signalR.HttpTransportType.LongPolling
+      })
+      .withAutomaticReconnect()
+      .configureLogging(signalR.LogLevel.Information)
+      .build();
 
-  connection.start()
-    .then(() => {
-      console.log('SignalR Connected');
-      connection.on('ReceiveComment', (comment: Comment) => {
-        console.log('Received new comment:', comment);
-        
-        if (!comment.parentCommentId && page === 1) {
-          setComments(prev => [comment, ...prev].slice(0, 25));
-        } else if (comment.parentCommentId) {
-          setComments(prev => addReplyToComment(prev, comment));
-        }
+    connection.start()
+      .then(() => {
+        console.log('SignalR Connected');
+        connection.on('ReceiveComment', (comment: Comment) => {
+          console.log('Received new comment:', comment);
+          
+          if (!comment.parentCommentId && page === 1) {
+            setComments(prev => [comment, ...prev].slice(0, 25));
+          } else if (comment.parentCommentId) {
+            setComments(prev => addReplyToComment(prev, comment));
+          }
+        });
+      })
+      .catch(err => {
+        console.error('SignalR Error:', err);
       });
-    })
-    .catch(err => {
-      console.error('SignalR Error:', err);
-    });
 
-  return () => {
-    connection.stop().catch(err => console.error('SignalR disconnect error:', err));
-  };
-}, [page]);
+    return () => {
+      connection.stop().catch(err => console.error('SignalR disconnect error:', err));
+    };
+  }, [page]);
 
   const addReplyToComment = (comments: Comment[], reply: Comment): Comment[] => {
     return comments.map(comment => {
@@ -97,51 +95,46 @@ useEffect(() => {
   }, [page, sortBy, ascending]);
 
   const loadComments = async () => {
-  setLoading(true);
-  setError(null);
-  
-  // Спроба 1
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      console.log(`Loading comments (attempt ${attempt})...`);
-      
-      const response = await fetch(
-  `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
-  {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json'
-    },
-    mode: 'cors',
-    credentials: 'omit' // ВАЖЛИВО: без credentials
-  }
-);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    setLoading(true);
+    setError(null);
+    
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`Loading comments (attempt ${attempt})...`);
+        
+        const response = await fetch(
+          `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+            mode: 'cors',
+          }
+        );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data: PagedResult = await response.json();
+        setComments(data.items);
+        setTotalPages(data.totalPages);
+        setLoading(false);
+        return;
+        
+      } catch (error) {
+        console.error(`Attempt ${attempt} failed:`, error);
+        
+        if (attempt === 3) {
+          setError(`Не вдалося підключитися до API після 3 спроб. URL: ${API_URL}`);
+          setLoading(false);
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
       }
-      
-      const data: PagedResult = await response.json();
-      setComments(data.items);
-      setTotalPages(data.totalPages);
-      return; // Успіх - виходимо
-      
-    } catch (error) {
-      console.error(`Attempt ${attempt} failed:`, error);
-      
-      if (attempt === 3) {
-        // Остання спроба
-        setError(`Не вдалося підключитися до API після 3 спроб. Перевірте що backend запущений: ${API_URL}`);
-      } else {
-        // Почекати перед наступною спробою
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      }
-    } finally {
-      setLoading(false);
     }
-  }
-};
+  };
 
   const handleSort = (field: string) => {
     if (sortBy === field) {

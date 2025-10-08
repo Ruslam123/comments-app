@@ -7,6 +7,7 @@ interface CommentFormProps {
   onCommentAdded: () => void;
   parentId?: string;
 }
+
 const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) => {
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
@@ -107,7 +108,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   const handlePreview = async () => {
     try {
-      const response = await fetch('/api/comments/preview', {
+      const response = await fetch(`${API_URL}/api/comments/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -125,7 +126,6 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
     if (isSubmitting) return;
     
     if (!validateForm()) {
-      console.log('Validation failed:', errors);
       return;
     }
 
@@ -133,8 +133,7 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
     try {
       // Перевірка CAPTCHA
-      console.log('Validating captcha...');
-      const captchaValid = await fetch('/api/captcha/validate', {
+      const captchaValid = await fetch(`${API_URL}/api/captcha/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: captchaToken, code: captchaCode })
@@ -154,18 +153,15 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         return;
       }
 
-      console.log('Captcha validated successfully');
-
       let imageUrl = null;
       let textFileUrl = null;
 
       // Завантаження зображення
       if (imageFile) {
-        console.log('Uploading image...');
         const formData = new FormData();
         formData.append('file', imageFile);
         
-        const imgResponse = await fetch('/api/file/image', {
+        const imgResponse = await fetch(`${API_URL}/api/file/image`, {
           method: 'POST',
           body: formData
         });
@@ -177,16 +173,14 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         
         const imgData = await imgResponse.json();
         imageUrl = imgData.url;
-        console.log('Image uploaded:', imageUrl);
       }
 
       // Завантаження текстового файлу
       if (textFile) {
-        console.log('Uploading text file...');
         const formData = new FormData();
         formData.append('file', textFile);
         
-        const txtResponse = await fetch('/api/file/text', {
+        const txtResponse = await fetch(`${API_URL}/api/file/text`, {
           method: 'POST',
           body: formData
         });
@@ -198,11 +192,9 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         
         const txtData = await txtResponse.json();
         textFileUrl = txtData.url;
-        console.log('Text file uploaded:', textFileUrl);
       }
 
       // Створення коментаря
-      console.log('Creating comment...');
       const commentData = {
         userName,
         email,
@@ -213,10 +205,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         imagePath: imageUrl,
         textFilePath: textFileUrl
       };
-      
-      console.log('Comment data:', commentData);
 
-      const response = await fetch('/api/comments', {
+      const response = await fetch(`${API_URL}/api/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(commentData)
@@ -227,8 +217,6 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         console.error('Error response:', errorText);
         throw new Error(`Помилка створення коментаря: ${response.status}`);
       }
-
-      console.log('Comment created successfully');
 
       // Очищення форми
       setUserName('');
