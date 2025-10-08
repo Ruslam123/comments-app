@@ -39,39 +39,40 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // SignalR з обробкою помилок
-    const connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_URL}/hubs/comments`, {
-        skipNegotiation: false,
-        transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.ServerSentEvents | signalR.HttpTransportType.LongPolling
-      })
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Information)
-      .build();
+useEffect(() => {
+  const connection = new signalR.HubConnectionBuilder()
+    .withUrl(`${API_URL}/hubs/comments`, {
+      skipNegotiation: false,
+      withCredentials: false, // ЗМІНЕНО: вимкнути credentials
+      transport: signalR.HttpTransportType.WebSockets | 
+                 signalR.HttpTransportType.ServerSentEvents | 
+                 signalR.HttpTransportType.LongPolling
+    })
+    .withAutomaticReconnect()
+    .configureLogging(signalR.LogLevel.Information)
+    .build();
 
-    connection.start()
-      .then(() => {
-        console.log('SignalR Connected');
-        connection.on('ReceiveComment', (comment: Comment) => {
-          console.log('Received new comment:', comment);
-          
-          if (!comment.parentCommentId && page === 1) {
-            setComments(prev => [comment, ...prev].slice(0, 25));
-          } else if (comment.parentCommentId) {
-            setComments(prev => addReplyToComment(prev, comment));
-          }
-        });
-      })
-      .catch(err => {
-        console.error('SignalR Error:', err);
-        // Не блокуємо застосунок якщо SignalR не працює
+  connection.start()
+    .then(() => {
+      console.log('SignalR Connected');
+      connection.on('ReceiveComment', (comment: Comment) => {
+        console.log('Received new comment:', comment);
+        
+        if (!comment.parentCommentId && page === 1) {
+          setComments(prev => [comment, ...prev].slice(0, 25));
+        } else if (comment.parentCommentId) {
+          setComments(prev => addReplyToComment(prev, comment));
+        }
       });
+    })
+    .catch(err => {
+      console.error('SignalR Error:', err);
+    });
 
-    return () => {
-      connection.stop().catch(err => console.error('SignalR disconnect error:', err));
-    };
-  }, [page]);
+  return () => {
+    connection.stop().catch(err => console.error('SignalR disconnect error:', err));
+  };
+}, [page]);
 
   const addReplyToComment = (comments: Comment[], reply: Comment): Comment[] => {
     return comments.map(comment => {
@@ -105,17 +106,17 @@ function App() {
       console.log(`Loading comments (attempt ${attempt})...`);
       
       const response = await fetch(
-        `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          mode: 'cors',
-          credentials: 'omit'
-        }
-      );
+  `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
+  {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    mode: 'cors',
+    credentials: 'omit' // ВАЖЛИВО: без credentials
+  }
+);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
