@@ -135,6 +135,26 @@ app.MapGet("/api", () => Results.Ok(new
     status = "running"
 }));
 
+// Debug endpoint - перевірка wwwroot
+app.MapGet("/debug/wwwroot", () => 
+{
+    var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+    var exists = Directory.Exists(wwwrootPath);
+    var files = exists ? Directory.GetFiles(wwwrootPath).Select(Path.GetFileName).ToArray() : Array.Empty<string>();
+    var dirs = exists ? Directory.GetDirectories(wwwrootPath).Select(Path.GetFileName).ToArray() : Array.Empty<string>();
+    
+    return Results.Ok(new
+    {
+        wwwrootPath,
+        exists,
+        fileCount = files.Length,
+        dirCount = dirs.Length,
+        files = files.Take(20),
+        directories = dirs,
+        indexHtmlExists = File.Exists(Path.Combine(wwwrootPath, "index.html"))
+    });
+});
+
 // === Міграції ===
 try
 {
