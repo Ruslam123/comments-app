@@ -101,31 +101,30 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS - МАКСИМАЛЬНО ВІДКРИТИЙ ===
+// === CORS - ВИПРАВЛЕНО для SignalR з credentials ===
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(origin => true) // Дозволити будь-який origin
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .WithExposedHeaders("*");
+              .AllowCredentials(); // ВАЖЛИВО для SignalR
     });
 });
 
 var app = builder.Build();
 
-// Логування для дебагу
 Console.WriteLine("=== APPLICATION STARTING ===");
 Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
-Console.WriteLine($"CORS Policy: AllowAll (AllowAnyOrigin)");
+Console.WriteLine("CORS Policy: AllowAll with Credentials");
 
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
     environment = app.Environment.EnvironmentName,
-    cors = "enabled"
+    cors = "enabled-with-credentials"
 }));
 
 app.MapGet("/", () => Results.Ok(new
@@ -133,7 +132,7 @@ app.MapGet("/", () => Results.Ok(new
     name = "Comments API",
     version = "1.0.0",
     status = "running",
-    cors = "AllowAll policy active"
+    cors = "AllowAll with credentials"
 }));
 
 // Міграції
@@ -156,23 +155,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// КРИТИЧНО: Додатковий middleware для CORS заголовків
-app.Use(async (context, next) =>
-{
-    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
-    
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.StatusCode = 200;
-        return;
-    }
-    
-    await next();
-});
-
-// ВАЖЛИВО: CORS middleware має бути ПЕРШИМ
+// ВАЖЛИВО: CORS має бути ПЕРШИМ
 app.UseCors("AllowAll");
 app.UseStaticFiles();
 app.UseAuthorization();
@@ -180,7 +163,6 @@ app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
 
 Console.WriteLine("=== APPLICATION STARTED ===");
-Console.WriteLine("CORS is configured to allow all origins");
 app.Run();
 
 public class DummyCacheService : ICacheService
