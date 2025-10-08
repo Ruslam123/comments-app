@@ -29,7 +29,9 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
 
   const loadCaptcha = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/captcha`);
+      const response = await fetch(`${API_URL}/api/captcha`, {
+        credentials: 'include'
+      });
       if (!response.ok) throw new Error('Failed to load captcha');
       const data = await response.json();
       setCaptchaToken(data.token);
@@ -111,7 +113,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
       const response = await fetch(`${API_URL}/api/comments/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text }),
+        credentials: 'include'
       });
       const data = await response.json();
       setPreview(data.html);
@@ -136,7 +139,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
       const captchaValid = await fetch(`${API_URL}/api/captcha/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: captchaToken, code: captchaCode })
+        body: JSON.stringify({ token: captchaToken, code: captchaCode }),
+        credentials: 'include'
       });
       
       if (!captchaValid.ok) {
@@ -163,7 +167,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         
         const imgResponse = await fetch(`${API_URL}/api/file/image`, {
           method: 'POST',
-          body: formData
+          body: formData,
+          credentials: 'include'
         });
         
         if (!imgResponse.ok) {
@@ -182,7 +187,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
         
         const txtResponse = await fetch(`${API_URL}/api/file/text`, {
           method: 'POST',
-          body: formData
+          body: formData,
+          credentials: 'include'
         });
         
         if (!txtResponse.ok) {
@@ -209,7 +215,8 @@ const CommentForm: React.FC<CommentFormProps> = ({ onCommentAdded, parentId }) =
       const response = await fetch(`${API_URL}/api/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(commentData)
+        body: JSON.stringify(commentData),
+        credentials: 'include'
       });
 
       if (!response.ok) {
