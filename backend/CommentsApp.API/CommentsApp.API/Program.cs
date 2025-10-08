@@ -101,21 +101,14 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS - ВИПРАВЛЕНО ===
+// === CORS - КРИТИЧНО ВАЖЛИВО ===
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
-        policy.WithOrigins(
-            "http://localhost:3000",
-            "https://localhost:3000",
-            "https://comments-30qjlbmzd-ruslam123s-projects.vercel.app",
-            "https://*.vercel.app"
-        )
-        .SetIsOriginAllowedToAllowWildcardSubdomains()
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials(); // ВАЖЛИВО для SignalR
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
@@ -153,8 +146,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// ВАЖЛИВО: Порядок middleware
-app.UseCors("AllowFrontend"); // ПЕРШЕ
+// ВАЖЛИВО: CORS має бути ПЕРШИМ middleware
+app.UseCors("AllowAll");
 app.UseStaticFiles();
 app.UseAuthorization();
 app.MapControllers();
