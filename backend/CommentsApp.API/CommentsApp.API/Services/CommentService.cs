@@ -31,6 +31,8 @@ public class CommentService
     }
     
     public async Task<PagedResult<CommentDto>> GetCommentsAsync(int page, int pageSize, string sortBy, bool ascending)
+{
+    try
     {
         var cacheKey = $"comments:page:{page}:size:{pageSize}:sort:{sortBy}:asc:{ascending}";
         var cached = await _cacheService.GetAsync<PagedResult<CommentDto>>(cacheKey);
@@ -49,6 +51,21 @@ public class CommentService
         await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(5));
         return dto;
     }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ERROR in GetCommentsAsync: {ex.Message}");
+        Console.WriteLine($"Stack: {ex.StackTrace}");
+        
+        // Повертаємо порожній результат замість краху
+        return new PagedResult<CommentDto>
+        {
+            Items = new List<CommentDto>(),
+            TotalCount = 0,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+}
     
     public async Task<CommentDto> CreateCommentAsync(CreateCommentDto dto, string ipAddress, string userAgent)
     {
