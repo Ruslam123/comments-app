@@ -4,6 +4,7 @@ using CommentsApp.Core.Entities;
 using CommentsApp.Core.Interfaces;
 using Microsoft.AspNetCore.SignalR;
 using CommentsApp.API.Hubs;
+using Microsoft.Extensions.Logging;
 
 namespace CommentsApp.API.Services;
 
@@ -14,6 +15,7 @@ public class CommentService
     private readonly ICacheService _cacheService;
     private readonly IQueueService _queueService;
     private readonly IHubContext<CommentsHub> _hubContext;
+    private readonly ILogger<CommentService> _logger;
     private static readonly string[] AllowedTags = { "a", "code", "i", "strong" };
     
     public CommentService(
@@ -21,51 +23,78 @@ public class CommentService
         IUserRepository userRepository, 
         ICacheService cacheService, 
         IQueueService queueService,
-        IHubContext<CommentsHub> hubContext)
+        IHubContext<CommentsHub> hubContext,
+        ILogger<CommentService> logger)
     {
         _commentRepository = commentRepository;
         _userRepository = userRepository;
         _cacheService = cacheService;
         _queueService = queueService;
         _hubContext = hubContext;
+        _logger = logger;
     }
     
     public async Task<PagedResult<CommentDto>> GetCommentsAsync(int page, int pageSize, string sortBy, bool ascending)
-{
-    try
     {
-        var cacheKey = $"comments:page:{page}:size:{pageSize}:sort:{sortBy}:asc:{ascending}";
-        var cached = await _cacheService.GetAsync<PagedResult<CommentDto>>(cacheKey);
-        if (cached != null) return cached;
-        
-        var result = await _commentRepository.GetTopLevelCommentsAsync(page, pageSize, sortBy, ascending);
-        
-        var dto = new PagedResult<CommentDto>
+        try
         {
-            Items = result.Items.Select(MapToDto).ToList(),
-            TotalCount = result.TotalCount,
-            Page = result.Page,
-            PageSize = result.PageSize
-        };
-        
-        await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(5));
-        return dto;
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"ERROR in GetCommentsAsync: {ex.Message}");
-        Console.WriteLine($"Stack: {ex.StackTrace}");
-        
-        // Повертаємо порожній результат замість краху
-        return new PagedResult<CommentDto>
+            _logger.LogInformation($"GetCommentsAsync called: page={page}, pageSize={pageSize}, sortBy={sortBy}, ascending={ascending}");
+            
+            // Спроба отримати з кешу
+            var cacheKey = $"comments:page:{page}:size:{pageSize}:sort:{sortBy}:asc:{ascending}";
+            
+            try
+            {
+                var cached = await _cacheService.GetAsync<PagedResult<CommentDto>>(cacheKey);
+                if (cached != null)
+                {
+                    _logger.LogInformation("Returning cached result");
+                    return cached;
+                }
+            }
+            catch (Exception cacheEx)
+            {
+                _logger.LogWarning($"Cache read failed (non-critical): {cacheEx.Message}");
+            }
+            
+            // Отримання з БД
+            _logger.LogInformation("Fetching from database...");
+            var result = await _commentRepository.GetTopLevelCommentsAsync(page, pageSize, sortBy, ascending);
+            _logger.LogInformation($"DB returned {result.Items.Count} items, total: {result.TotalCount}");
+            
+            // Маппінг
+            var dto = new PagedResult<CommentDto>
+            {
+                Items = result.Items.Select(MapToDto).ToList(),
+                TotalCount = result.TotalCount,
+                Page = result.Page,
+                PageSize = result.PageSize
+            };
+            
+            _logger.LogInformation($"Mapped to DTO: {dto.Items.Count} items");
+            
+            // Збереження в кеш
+            try
+            {
+                await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(5));
+                _logger.LogInformation("Saved to cache");
+            }
+            catch (Exception cacheEx)
+            {
+                _logger.LogWarning($"Cache write failed (non-critical): {cacheEx.Message}");
+            }
+            
+            return dto;
+        }
+        catch (Exception ex)
         {
-            Items = new List<CommentDto>(),
-            TotalCount = 0,
-            Page = page,
-            PageSize = pageSize
-        };
+            _logger.LogError(ex, $"CRITICAL ERROR in GetCommentsAsync: {ex.Message}");
+            _logger.LogError($"Stack trace: {ex.StackTrace}");
+            
+            // НЕ повертаємо порожній результат, а пробрасываем помилку
+            throw new ApplicationException($"Failed to get comments: {ex.Message}", ex);
+        }
     }
-}
     
     public async Task<CommentDto> CreateCommentAsync(CreateCommentDto dto, string ipAddress, string userAgent)
     {
@@ -100,11 +129,28 @@ public class CommentService
         
         comment = await _commentRepository.AddCommentAsync(comment);
         
-        // Відправляємо подію через SignalR
         var commentDto = MapToDto(comment);
-        await _hubContext.Clients.All.SendAsync("ReceiveComment", commentDto);
         
-        await _queueService.PublishCommentCreatedAsync(comment.Id);
+        // SignalR
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("ReceiveComment", commentDto);
+        }
+        catch (Exception signalrEx)
+        {
+            _logger.LogWarning($"SignalR failed (non-critical): {signalrEx.Message}");
+        }
+        
+        // Queue
+        try
+        {
+            await _queueService.PublishCommentCreatedAsync(comment.Id);
+        }
+        catch (Exception queueEx)
+        {
+            _logger.LogWarning($"Queue publish failed (non-critical): {queueEx.Message}");
+        }
+        
         await InvalidateCache();
         
         return commentDto;
@@ -112,10 +158,8 @@ public class CommentService
     
     private string SanitizeHtml(string input)
     {
-        // Спочатку екрануємо всі HTML символи
         var sanitized = System.Web.HttpUtility.HtmlEncode(input);
         
-        // Тепер дозволяємо тільки безпечні теги
         var pattern = @"&lt;(/?)(\w+)(.*?)&gt;";
         
         sanitized = Regex.Replace(sanitized, pattern, match =>
@@ -129,7 +173,6 @@ public class CommentService
             
             if (tagName == "a" && !isClosing)
             {
-                // Обробляємо атрибути посилання
                 var hrefMatch = Regex.Match(attributes, @"href\s*=\s*&quot;([^&]+)&quot;");
                 var titleMatch = Regex.Match(attributes, @"title\s*=\s*&quot;([^&]+)&quot;");
                 
@@ -169,8 +212,6 @@ public class CommentService
     
     private async Task InvalidateCache()
     {
-        // Redis не підтримує wildcard видалення через StackExchange.Redis
-        // Тому просто очищуємо кеш через TTL
         await Task.CompletedTask;
     }
 }

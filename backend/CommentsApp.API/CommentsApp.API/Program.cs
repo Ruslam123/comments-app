@@ -10,6 +10,11 @@ using CommentsApp.API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Логування
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxConcurrentConnections = 100;
@@ -43,14 +48,21 @@ if (!string.IsNullOrEmpty(databaseUrl))
         MaxPoolSize = 20,
         MinPoolSize = 5
     }.ToString();
+    
+    Console.WriteLine($"[DB] Connected to: {uri.Host}:{uri.Port}/{uri.LocalPath.TrimStart('/')}");
 }
 else
 {
     connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
+    Console.WriteLine("[DB] Using default connection string");
 }
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+{
+    options.UseNpgsql(connectionString);
+    options.EnableSensitiveDataLogging(builder.Environment.IsDevelopment());
+    options.EnableDetailedErrors();
+});
 
 // === Redis ===
 var redisUrl = Environment.GetEnvironmentVariable("REDIS_URL");
@@ -58,17 +70,21 @@ if (!string.IsNullOrEmpty(redisUrl))
 {
     try
     {
+        Console.WriteLine("[Redis] Attempting connection...");
         builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
             ConnectionMultiplexer.Connect(redisUrl + ",connectTimeout=5000,abortConnect=false"));
         builder.Services.AddScoped<ICacheService, RedisCacheService>();
+        Console.WriteLine("[Redis] ✅ Connected");
     }
-    catch
+    catch (Exception ex)
     {
+        Console.WriteLine($"[Redis] ⚠️ Failed: {ex.Message}, using dummy cache");
         builder.Services.AddScoped<ICacheService, DummyCacheService>();
     }
 }
 else
 {
+    Console.WriteLine("[Redis] Not configured, using dummy cache");
     builder.Services.AddScoped<ICacheService, DummyCacheService>();
 }
 
@@ -78,15 +94,19 @@ if (!string.IsNullOrEmpty(rabbitMqUrl))
 {
     try
     {
+        Console.WriteLine("[RabbitMQ] Attempting connection...");
         builder.Services.AddSingleton<IQueueService>(sp => new RabbitMqService(rabbitMqUrl));
+        Console.WriteLine("[RabbitMQ] ✅ Connected");
     }
-    catch
+    catch (Exception ex)
     {
+        Console.WriteLine($"[RabbitMQ] ⚠️ Failed: {ex.Message}, using dummy queue");
         builder.Services.AddSingleton<IQueueService, DummyQueueService>();
     }
 }
 else
 {
+    Console.WriteLine("[RabbitMQ] Not configured, using dummy queue");
     builder.Services.AddSingleton<IQueueService, DummyQueueService>();
 }
 
@@ -116,57 +136,70 @@ var app = builder.Build();
 
 Console.WriteLine("=== APPLICATION STARTING ===");
 Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
-Console.WriteLine("CORS Policy: AllowAnyOrigin (no credentials)");
 
 // Health endpoint
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
-    environment = app.Environment.EnvironmentName,
-    cors = "no-credentials"
+    environment = app.Environment.EnvironmentName
 }));
 
-// API info endpoint
-app.MapGet("/api", () => Results.Ok(new
+// Debug endpoint
+app.MapGet("/debug/db", async (ApplicationDbContext db) => 
 {
-    name = "Comments API",
-    version = "1.0.0",
-    status = "running"
-}));
-
-// Debug endpoint - перевірка wwwroot
-app.MapGet("/debug/wwwroot", () => 
-{
-    var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-    var exists = Directory.Exists(wwwrootPath);
-    var files = exists ? Directory.GetFiles(wwwrootPath).Select(Path.GetFileName).ToArray() : Array.Empty<string>();
-    var dirs = exists ? Directory.GetDirectories(wwwrootPath).Select(Path.GetFileName).ToArray() : Array.Empty<string>();
-    
-    return Results.Ok(new
+    try
     {
-        wwwrootPath,
-        exists,
-        fileCount = files.Length,
-        dirCount = dirs.Length,
-        files = files.Take(20),
-        directories = dirs,
-        indexHtmlExists = File.Exists(Path.Combine(wwwrootPath, "index.html"))
-    });
+        var canConnect = await db.Database.CanConnectAsync();
+        var userCount = await db.Users.CountAsync();
+        var commentCount = await db.Comments.CountAsync();
+        
+        return Results.Ok(new
+        {
+            canConnect,
+            userCount,
+            commentCount,
+            connectionString = db.Database.GetConnectionString()?.Split(';').FirstOrDefault()
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new
+        {
+            error = ex.Message,
+            stackTrace = ex.StackTrace
+        }, statusCode: 500);
+    }
 });
 
 // === Міграції ===
 try
 {
-    Console.WriteLine("Running database migrations...");
+    Console.WriteLine("[Migrations] Starting...");
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await db.Database.MigrateAsync();
-    Console.WriteLine("Migrations completed successfully");
+    
+    var canConnect = await db.Database.CanConnectAsync();
+    Console.WriteLine($"[Migrations] Can connect to DB: {canConnect}");
+    
+    if (canConnect)
+    {
+        await db.Database.MigrateAsync();
+        Console.WriteLine("[Migrations] ✅ Completed successfully");
+        
+        var userCount = await db.Users.CountAsync();
+        var commentCount = await db.Comments.CountAsync();
+        Console.WriteLine($"[DB] Users: {userCount}, Comments: {commentCount}");
+    }
+    else
+    {
+        Console.WriteLine("[Migrations] ❌ Cannot connect to database");
+    }
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"Migration failed: {ex.Message}");
+    Console.WriteLine($"[Migrations] ❌ Failed: {ex.Message}");
+    Console.WriteLine($"Stack trace: {ex.StackTrace}");
 }
 
 if (app.Environment.IsDevelopment())
@@ -179,31 +212,26 @@ app.UseCors("AllowAll");
 
 // Перевірка wwwroot
 var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-Console.WriteLine($"Checking wwwroot at: {wwwrootPath}");
-Console.WriteLine($"wwwroot exists: {Directory.Exists(wwwrootPath)}");
+Console.WriteLine($"[wwwroot] Path: {wwwrootPath}");
+Console.WriteLine($"[wwwroot] Exists: {Directory.Exists(wwwrootPath)}");
 if (Directory.Exists(wwwrootPath))
 {
     var files = Directory.GetFiles(wwwrootPath);
-    Console.WriteLine($"Files in wwwroot: {files.Length}");
-    foreach (var file in files.Take(10))
+    Console.WriteLine($"[wwwroot] Files: {files.Length}");
+    foreach (var file in files.Take(5))
     {
         Console.WriteLine($"  - {Path.GetFileName(file)}");
     }
 }
 
-// ВАЖЛИВО: Static files для React
 app.UseDefaultFiles();
 app.UseStaticFiles();
-
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CommentsHub>("/hubs/comments");
-
-// КРИТИЧНО: Fallback на index.html для React Router
 app.MapFallbackToFile("index.html");
 
 Console.WriteLine("=== APPLICATION STARTED ===");
-Console.WriteLine("Serving React SPA from wwwroot");
 app.Run();
 
 public class DummyCacheService : ICacheService
