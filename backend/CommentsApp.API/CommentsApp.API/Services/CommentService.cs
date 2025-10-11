@@ -93,7 +93,7 @@ public class CommentService
                 }
             }
             
-            var dto = new PagedResult<CommentDto>
+            var pagedResult = new PagedResult<CommentDto>
             {
                 Items = mappedItems,
                 TotalCount = result.TotalCount,
@@ -101,12 +101,12 @@ public class CommentService
                 PageSize = result.PageSize
             };
             
-            _logger.LogInformation($"✅ Successfully mapped {dto.Items.Count} comments");
+            _logger.LogInformation($"✅ Successfully mapped {pagedResult.Items.Count} comments");
             
             // Збереження в кеш
             try
             {
-                await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(5));
+                await _cacheService.SetAsync(cacheKey, pagedResult, TimeSpan.FromMinutes(5));
                 _logger.LogInformation("✅ Saved to cache");
             }
             catch (Exception cacheEx)
@@ -114,7 +114,7 @@ public class CommentService
                 _logger.LogWarning($"⚠️ Cache write failed (non-critical): {cacheEx.Message}");
             }
             
-            return dto;
+            return pagedResult;
         }
         catch (Exception ex)
         {
