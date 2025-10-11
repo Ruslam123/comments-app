@@ -41,7 +41,6 @@ public class CommentService
         {
             _logger.LogInformation($"GetCommentsAsync: page={page}, size={pageSize}, sort={sortBy}, asc={ascending}");
             
-            // Спроба отримати з кешу
             var cacheKey = $"comments:page:{page}:size:{pageSize}:sort:{sortBy}:asc:{ascending}";
             
             try
@@ -55,16 +54,15 @@ public class CommentService
             }
             catch (Exception cacheEx)
             {
-                _logger.LogWarning($"⚠️ Cache read failed (non-critical): {cacheEx.Message}");
+                _logger.LogWarning($"⚠️ Cache read failed: {cacheEx.Message}");
             }
             
-            // Отримання з БД
             _logger.LogInformation("🔍 Fetching from database...");
             var result = await _commentRepository.GetTopLevelCommentsAsync(page, pageSize, sortBy, ascending);
             
             if (result.Items == null || !result.Items.Any())
             {
-                _logger.LogWarning("⚠️ No comments found in database");
+                _logger.LogWarning("⚠️ No comments found");
                 return new PagedResult<CommentDto>
                 {
                     Items = new List<CommentDto>(),
@@ -74,21 +72,19 @@ public class CommentService
                 };
             }
             
-            _logger.LogInformation($"✅ DB returned {result.Items.Count} items, total: {result.TotalCount}");
+            _logger.LogInformation($"✅ DB returned {result.Items.Count} items");
             
-            // Маппінг з перевіркою
             var mappedItems = new List<CommentDto>();
             foreach (var comment in result.Items)
             {
                 try
                 {
-                    var dto = MapToDto(comment);
-                    mappedItems.Add(dto);
+                    var mappedComment = MapToDto(comment);
+                    mappedItems.Add(mappedComment);
                 }
                 catch (Exception mapEx)
                 {
                     _logger.LogError($"❌ Failed to map comment {comment.Id}: {mapEx.Message}");
-                    // Пропускаємо цей коментар
                     continue;
                 }
             }
@@ -103,25 +99,20 @@ public class CommentService
             
             _logger.LogInformation($"✅ Successfully mapped {pagedResult.Items.Count} comments");
             
-            // Збереження в кеш
             try
             {
                 await _cacheService.SetAsync(cacheKey, pagedResult, TimeSpan.FromMinutes(5));
-                _logger.LogInformation("✅ Saved to cache");
             }
             catch (Exception cacheEx)
             {
-                _logger.LogWarning($"⚠️ Cache write failed (non-critical): {cacheEx.Message}");
+                _logger.LogWarning($"⚠️ Cache write failed: {cacheEx.Message}");
             }
             
             return pagedResult;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"❌ CRITICAL ERROR in GetCommentsAsync: {ex.Message}");
-            _logger.LogError($"Stack trace: {ex.StackTrace}");
-            
-            // Повертаємо порожній результат замість помилки
+            _logger.LogError(ex, $"❌ ERROR in GetCommentsAsync: {ex.Message}");
             return new PagedResult<CommentDto>
             {
                 Items = new List<CommentDto>(),
@@ -167,35 +158,30 @@ public class CommentService
         
         var commentDto = MapToDto(comment);
         
-        // SignalR
         try
         {
             await _hubContext.Clients.All.SendAsync("ReceiveComment", commentDto);
-            _logger.LogInformation($"✅ SignalR notification sent for comment {comment.Id}");
+            _logger.LogInformation($"✅ SignalR notification sent");
         }
         catch (Exception signalrEx)
         {
-            _logger.LogWarning($"⚠️ SignalR failed (non-critical): {signalrEx.Message}");
+            _logger.LogWarning($"⚠️ SignalR failed: {signalrEx.Message}");
         }
         
-        // Queue
         try
         {
             await _queueService.PublishCommentCreatedAsync(comment.Id);
         }
         catch (Exception queueEx)
         {
-            _logger.LogWarning($"⚠️ Queue publish failed (non-critical): {queueEx.Message}");
+            _logger.LogWarning($"⚠️ Queue failed: {queueEx.Message}");
         }
-        
-        await InvalidateCache();
         
         return commentDto;
     }
     
     private string SanitizeHtml(string input)
     {
-        // Використовуємо HtmlEncoder.Default замість System.Web.HttpUtility
         var sanitized = HtmlEncoder.Default.Encode(input);
         
         var pattern = @"&lt;(/?)(\w+)(.*?)&gt;";
@@ -228,16 +214,32 @@ public class CommentService
     
     private CommentDto MapToDto(Comment comment)
     {
-        // КРИТИЧНА ПЕРЕВІРКА
         if (comment == null)
         {
-            throw new ArgumentNullException(nameof(comment), "Comment cannot be null");
+            throw new ArgumentNullException(nameof(comment));
         }
         
         if (comment.User == null)
         {
-            _logger.LogError($"❌ Comment {comment.Id} has NULL User! UserId: {comment.UserId}");
-            throw new InvalidOperationException($"Comment {comment.Id} does not have User loaded. UserId: {comment.UserId}");
+            _logger.LogError($"❌ Comment {comment.Id} has NULL User!");
+            throw new InvalidOperationException($"Comment {comment.Id} missing User");
+        }
+        
+        var replies = new List<CommentDto>();
+        if (comment.Replies != null && comment.Replies.Any())
+        {
+            foreach (var reply in comment.Replies)
+            {
+                try
+                {
+                    var replyDto = MapToDto(reply);
+                    replies.Add(replyDto);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Failed to map reply {reply.Id}: {ex.Message}");
+                }
+            }
         }
         
         return new CommentDto
@@ -251,23 +253,7 @@ public class CommentService
             TextFileUrl = comment.TextFilePath,
             CreatedAt = comment.CreatedAt,
             ParentCommentId = comment.ParentCommentId,
-            Replies = comment.Replies?.Select(r => {
-                try
-                {
-                    return MapToDto(r);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Failed to map reply {r.Id}: {ex.Message}");
-                    return null!;
-                }
-            }).Where(r => r != null).Select(r => r!).ToList() ?? new List<CommentDto>()
+            Replies = replies
         };
-    }
-    
-    private async Task InvalidateCache()
-    {
-        // Очистка кешу після створення коментаря
-        await Task.CompletedTask;
     }
 }
