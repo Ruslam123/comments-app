@@ -259,9 +259,9 @@ public class CommentService
                 catch (Exception ex)
                 {
                     _logger.LogError($"Failed to map reply {r.Id}: {ex.Message}");
-                    return null;
+                    return null!;
                 }
-            }).Where(r => r != null).ToList() ?? new List<CommentDto>()
+            }).Where(r => r != null).Select(r => r!).ToList() ?? new List<CommentDto>()
         };
     }
     
