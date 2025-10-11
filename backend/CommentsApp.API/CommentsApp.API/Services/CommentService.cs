@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Encodings.Web;
 using CommentsApp.Core.DTOs;
 using CommentsApp.Core.Entities;
 using CommentsApp.Core.Interfaces;
@@ -194,7 +195,8 @@ public class CommentService
     
     private string SanitizeHtml(string input)
     {
-        var sanitized = System.Web.HttpUtility.HtmlEncode(input);
+        // Використовуємо HtmlEncoder.Default замість System.Web.HttpUtility
+        var sanitized = HtmlEncoder.Default.Encode(input);
         
         var pattern = @"&lt;(/?)(\w+)(.*?)&gt;";
         
