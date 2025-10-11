@@ -202,11 +202,8 @@ catch (Exception ex)
     Console.WriteLine($"Stack trace: {ex.StackTrace}");
 }
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("AllowAll");
 
