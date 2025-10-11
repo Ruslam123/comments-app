@@ -126,9 +126,14 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:8080",
+                "https://lovely-achievement-production.up.railway.app"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
     });
 });
 
@@ -202,8 +207,13 @@ catch (Exception ex)
     Console.WriteLine($"Stack trace: {ex.StackTrace}");
 }
 
+// ВАЖЛИВО: Swagger працює у всіх середовищах
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Comments API v1");
+    c.RoutePrefix = "swagger"; // Доступ через /swagger
+});
 
 app.UseCors("AllowAll");
 
@@ -229,6 +239,7 @@ app.MapHub<CommentsHub>("/hubs/comments");
 app.MapFallbackToFile("index.html");
 
 Console.WriteLine("=== APPLICATION STARTED ===");
+Console.WriteLine($"Swagger: http://localhost:8080/swagger");
 app.Run();
 
 public class DummyCacheService : ICacheService
