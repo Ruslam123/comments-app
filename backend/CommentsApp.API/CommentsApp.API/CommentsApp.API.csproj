@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.20" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
@@ -15,9 +16,12 @@
     <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
     <PackageReference Include="StackExchange.Redis" Version="2.7.10" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.6" />
-    <PackageReference Include="System.Web.HttpUtility" Version="4.3.0" />
+    <!-- Оновлена версія ImageSharp без вразливостей -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.7" />
+    <!-- ВИПРАВЛЕНО: Правильний пакет для .NET -->
+    <PackageReference Include="System.Text.Encodings.Web" Version="8.0.0" />
   </ItemGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\..\CommentsApp.Core\CommentsApp.Core\CommentsApp.Core.csproj" />
     <ProjectReference Include="..\..\CommentsApp.Infrastructure\CommentsApp.Infrastructure\CommentsApp.Infrastructure.csproj" />
