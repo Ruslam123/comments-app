@@ -10,7 +10,6 @@ using CommentsApp.API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Логування
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
@@ -25,7 +24,6 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// === PostgreSQL ===
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 string connectionString;
 
@@ -41,7 +39,6 @@ if (!string.IsNullOrEmpty(databaseUrl))
         Username = userInfo[0],
         Password = userInfo.Length > 1 ? userInfo[1] : "",
         SslMode = SslMode.Require,
-        TrustServerCertificate = true,
         Timeout = 30,
         CommandTimeout = 30,
         Pooling = true,
@@ -49,12 +46,12 @@ if (!string.IsNullOrEmpty(databaseUrl))
         MinPoolSize = 5
     }.ToString();
     
-    Console.WriteLine($"[DB] Connected to: {uri.Host}:{uri.Port}/{uri.LocalPath.TrimStart('/')}");
+    Console.WriteLine($"[DB] Host: {uri.Host}:{uri.Port}");
 }
 else
 {
     connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
-    Console.WriteLine("[DB] Using default connection string");
+    Console.WriteLine("[DB] Using default connection");
 }
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -64,13 +61,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.EnableDetailedErrors();
 });
 
-// === Redis ===
 var redisUrl = Environment.GetEnvironmentVariable("REDIS_URL");
 if (!string.IsNullOrEmpty(redisUrl))
 {
     try
     {
-        Console.WriteLine("[Redis] Attempting connection...");
+        Console.WriteLine("[Redis] Connecting...");
         builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
             ConnectionMultiplexer.Connect(redisUrl + ",connectTimeout=5000,abortConnect=false"));
         builder.Services.AddScoped<ICacheService, RedisCacheService>();
@@ -78,35 +74,34 @@ if (!string.IsNullOrEmpty(redisUrl))
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[Redis] ⚠️ Failed: {ex.Message}, using dummy cache");
+        Console.WriteLine($"[Redis] ⚠️ Failed: {ex.Message}");
         builder.Services.AddScoped<ICacheService, DummyCacheService>();
     }
 }
 else
 {
-    Console.WriteLine("[Redis] Not configured, using dummy cache");
+    Console.WriteLine("[Redis] Not configured");
     builder.Services.AddScoped<ICacheService, DummyCacheService>();
 }
 
-// === RabbitMQ ===
 var rabbitMqUrl = Environment.GetEnvironmentVariable("RABBITMQ_URL");
 if (!string.IsNullOrEmpty(rabbitMqUrl))
 {
     try
     {
-        Console.WriteLine("[RabbitMQ] Attempting connection...");
+        Console.WriteLine("[RabbitMQ] Connecting...");
         builder.Services.AddSingleton<IQueueService>(sp => new RabbitMqService(rabbitMqUrl));
         Console.WriteLine("[RabbitMQ] ✅ Connected");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[RabbitMQ] ⚠️ Failed: {ex.Message}, using dummy queue");
+        Console.WriteLine($"[RabbitMQ] ⚠️ Failed: {ex.Message}");
         builder.Services.AddSingleton<IQueueService, DummyQueueService>();
     }
 }
 else
 {
-    Console.WriteLine("[RabbitMQ] Not configured, using dummy queue");
+    Console.WriteLine("[RabbitMQ] Not configured");
     builder.Services.AddSingleton<IQueueService, DummyQueueService>();
 }
 
@@ -121,7 +116,6 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// === CORS ===
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -142,7 +136,6 @@ var app = builder.Build();
 Console.WriteLine("=== APPLICATION STARTING ===");
 Console.WriteLine($"Environment: {app.Environment.EnvironmentName}");
 
-// Health endpoint
 app.MapGet("/health", () => Results.Ok(new 
 { 
     status = "healthy", 
@@ -150,7 +143,6 @@ app.MapGet("/health", () => Results.Ok(new
     environment = app.Environment.EnvironmentName
 }));
 
-// Debug endpoint
 app.MapGet("/debug/db", async (ApplicationDbContext db) => 
 {
     try
@@ -163,21 +155,15 @@ app.MapGet("/debug/db", async (ApplicationDbContext db) =>
         {
             canConnect,
             userCount,
-            commentCount,
-            connectionString = db.Database.GetConnectionString()?.Split(';').FirstOrDefault()
+            commentCount
         });
     }
     catch (Exception ex)
     {
-        return Results.Json(new
-        {
-            error = ex.Message,
-            stackTrace = ex.StackTrace
-        }, statusCode: 500);
+        return Results.Json(new { error = ex.Message }, statusCode: 500);
     }
 });
 
-// === Міграції ===
 try
 {
     Console.WriteLine("[Migrations] Starting...");
@@ -185,51 +171,35 @@ try
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     
     var canConnect = await db.Database.CanConnectAsync();
-    Console.WriteLine($"[Migrations] Can connect to DB: {canConnect}");
+    Console.WriteLine($"[Migrations] Can connect: {canConnect}");
     
     if (canConnect)
     {
         await db.Database.MigrateAsync();
-        Console.WriteLine("[Migrations] ✅ Completed successfully");
+        Console.WriteLine("[Migrations] ✅ Completed");
         
         var userCount = await db.Users.CountAsync();
         var commentCount = await db.Comments.CountAsync();
         Console.WriteLine($"[DB] Users: {userCount}, Comments: {commentCount}");
     }
-    else
-    {
-        Console.WriteLine("[Migrations] ❌ Cannot connect to database");
-    }
 }
 catch (Exception ex)
 {
     Console.WriteLine($"[Migrations] ❌ Failed: {ex.Message}");
-    Console.WriteLine($"Stack trace: {ex.StackTrace}");
 }
 
-// ВАЖЛИВО: Swagger працює у всіх середовищах
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Comments API v1");
-    c.RoutePrefix = "swagger"; // Доступ через /swagger
+    c.RoutePrefix = "swagger";
 });
 
 app.UseCors("AllowAll");
 
-// Перевірка wwwroot
 var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 Console.WriteLine($"[wwwroot] Path: {wwwrootPath}");
 Console.WriteLine($"[wwwroot] Exists: {Directory.Exists(wwwrootPath)}");
-if (Directory.Exists(wwwrootPath))
-{
-    var files = Directory.GetFiles(wwwrootPath);
-    Console.WriteLine($"[wwwroot] Files: {files.Length}");
-    foreach (var file in files.Take(5))
-    {
-        Console.WriteLine($"  - {Path.GetFileName(file)}");
-    }
-}
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -239,7 +209,7 @@ app.MapHub<CommentsHub>("/hubs/comments");
 app.MapFallbackToFile("index.html");
 
 Console.WriteLine("=== APPLICATION STARTED ===");
-Console.WriteLine($"Swagger: http://localhost:8080/swagger");
+Console.WriteLine($"Swagger: /swagger");
 app.Run();
 
 public class DummyCacheService : ICacheService
