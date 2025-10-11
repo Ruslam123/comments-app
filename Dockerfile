@@ -1,67 +1,59 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0
+# === STAGE 1: Build Backend ===
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
+WORKDIR /src
 
-# Встановлюємо Node.js
-RUN apt-get update && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
-    node --version && npm --version
+# Копіювання solution та проектів
+COPY backend/CommentsApp.sln ./
+COPY backend/CommentsApp.Core/CommentsApp.Core/*.csproj ./CommentsApp.Core/CommentsApp.Core/
+COPY backend/CommentsApp.Infrastructure/CommentsApp.Infrastructure/*.csproj ./CommentsApp.Infrastructure/CommentsApp.Infrastructure/
+COPY backend/CommentsApp.API/CommentsApp.API/*.csproj ./CommentsApp.API/CommentsApp.API/
 
-WORKDIR /build
-
-# === BACKEND ===
-COPY backend/ ./backend/
-WORKDIR /build/backend
+# Restore
 RUN dotnet restore CommentsApp.sln
-RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj -c Release -o /app
 
-# === FRONTEND ===
-WORKDIR /build/frontend
-COPY frontend/ ./
+# Копіювання всього коду
+COPY backend/ ./
 
-# Перевірка package.json
-RUN echo "=== package.json ===" && cat package.json
+# Build та Publish
+RUN dotnet publish CommentsApp.API/CommentsApp.API/CommentsApp.API.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore
 
-# Встановлення залежностей
+# === STAGE 2: Build Frontend ===
+FROM node:18-alpine AS frontend-build
+WORKDIR /app
+
+# Копіювання package.json
+COPY frontend/package*.json ./
 RUN npm install
 
-# Перевірка scripts
-RUN echo "=== Check if build script exists ===" && \
-    npm run --list
+# Копіювання коду frontend
+COPY frontend/ ./
 
-# Білд React
-RUN echo "=== Starting React build ===" && \
-    npm run build || (echo "❌ Build failed!" && exit 1)
+# Build React з правильним API_URL
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 
-# Перевірка результату білду
-RUN echo "=== Build folder contents ===" && \
-    ls -lah ./build/ && \
-    echo "=== index.html check ===" && \
-    cat ./build/index.html | head -n 5
+RUN npm run build
 
-# Копіювання в wwwroot
-RUN echo "=== Creating wwwroot ===" && \
-    mkdir -p /app/wwwroot && \
-    echo "=== Copying files ===" && \
-    cp -v ./build/* /app/wwwroot/ 2>&1 || echo "Copy individual files failed, trying recursive..." && \
-    cp -rv ./build/* /app/wwwroot/
-
-# Фінальна перевірка
-RUN echo "=== Final wwwroot check ===" && \
-    ls -lah /app/wwwroot/ && \
-    if [ -f "/app/wwwroot/index.html" ]; then \
-        echo "✅ index.html found!"; \
-    else \
-        echo "❌ index.html missing!" && \
-        echo "=== Searching for index.html ===" && \
-        find /build -name "index.html" && \
-        exit 1; \
-    fi
-
-# Uploads folder
-RUN mkdir -p /app/wwwroot/uploads && chmod 777 /app/wwwroot/uploads
-
+# === STAGE 3: Runtime ===
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
-EXPOSE 8080
+
+# Копіювання backend
+COPY --from=backend-build /app/publish .
+
+# Копіювання frontend у wwwroot
+COPY --from=frontend-build /app/build ./wwwroot
+
+# Створення папки для uploads
+RUN mkdir -p ./wwwroot/uploads && chmod 777 ./wwwroot/uploads
+
+# Environment
 ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "CommentsApp.API.dll"]
