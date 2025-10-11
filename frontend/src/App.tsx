@@ -25,9 +25,10 @@ interface PagedResult {
   totalPages: number;
 }
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = process.env.REACT_APP_API_URL || window.location.origin;
 
-console.log('API_URL:', API_URL);
+console.log('🔧 API_URL:', API_URL);
+console.log('🔧 Environment:', process.env.NODE_ENV);
 
 function App() {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -37,25 +38,50 @@ function App() {
   const [ascending, setAscending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<string>('connecting');
 
+  // SignalR Connection
   useEffect(() => {
-    const connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_URL}/hubs/comments`, {
-        skipNegotiation: false,
-        withCredentials: true, // ВКЛЮЧЕНО для роботи з новим CORS
-        transport: signalR.HttpTransportType.WebSockets | 
-                   signalR.HttpTransportType.ServerSentEvents | 
-                   signalR.HttpTransportType.LongPolling
-      })
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Information)
-      .build();
+    let connection: signalR.HubConnection | null = null;
 
-    connection.start()
-      .then(() => {
-        console.log('SignalR Connected');
+    const startConnection = async () => {
+      try {
+        console.log('🔌 Connecting to SignalR...');
+        setConnectionStatus('connecting');
+
+        connection = new signalR.HubConnectionBuilder()
+          .withUrl(`${API_URL}/hubs/comments`, {
+            skipNegotiation: false,
+            withCredentials: true,
+            transport: signalR.HttpTransportType.WebSockets | 
+                       signalR.HttpTransportType.ServerSentEvents | 
+                       signalR.HttpTransportType.LongPolling
+          })
+          .withAutomaticReconnect([0, 2000, 5000, 10000])
+          .configureLogging(signalR.LogLevel.Information)
+          .build();
+
+        connection.onreconnecting(() => {
+          console.log('🔄 SignalR reconnecting...');
+          setConnectionStatus('reconnecting');
+        });
+
+        connection.onreconnected(() => {
+          console.log('✅ SignalR reconnected');
+          setConnectionStatus('connected');
+        });
+
+        connection.onclose(() => {
+          console.log('❌ SignalR disconnected');
+          setConnectionStatus('disconnected');
+        });
+
+        await connection.start();
+        console.log('✅ SignalR Connected');
+        setConnectionStatus('connected');
+
         connection.on('ReceiveComment', (comment: Comment) => {
-          console.log('Received new comment:', comment);
+          console.log('📩 Received new comment:', comment);
           
           if (!comment.parentCommentId && page === 1) {
             setComments(prev => [comment, ...prev].slice(0, 25));
@@ -63,13 +89,19 @@ function App() {
             setComments(prev => addReplyToComment(prev, comment));
           }
         });
-      })
-      .catch(err => {
-        console.error('SignalR Error:', err);
-      });
+
+      } catch (err) {
+        console.error('❌ SignalR Error:', err);
+        setConnectionStatus('error');
+      }
+    };
+
+    startConnection();
 
     return () => {
-      connection.stop().catch(err => console.error('SignalR disconnect error:', err));
+      if (connection) {
+        connection.stop().catch(err => console.error('SignalR disconnect error:', err));
+      }
     };
   }, [page]);
 
@@ -99,40 +131,55 @@ function App() {
     setLoading(true);
     setError(null);
     
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        console.log(`Loading comments (attempt ${attempt})...`);
+        console.log(`🔄 Loading comments (attempt ${attempt}/${maxAttempts})...`);
         
-        const response = await fetch(
-          `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`,
-          {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-            },
-            mode: 'cors',
-            credentials: 'include' // ВКЛЮЧЕНО для роботи з новим CORS
-          }
-        );
+        const url = `${API_URL}/api/comments?page=${page}&pageSize=25&sortBy=${sortBy}&ascending=${ascending}`;
+        console.log(`📡 Fetching: ${url}`);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors',
+          credentials: 'include'
+        });
+        
+        console.log(`📊 Response status: ${response.status}`);
         
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          const errorText = await response.text();
+          console.error(`❌ HTTP Error ${response.status}:`, errorText);
+          throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 100)}`);
         }
         
         const data: PagedResult = await response.json();
-        setComments(data.items);
-        setTotalPages(data.totalPages);
+        console.log(`✅ Loaded ${data.items.length} comments (total: ${data.totalCount})`);
+        
+        setComments(data.items || []);
+        setTotalPages(data.totalPages || 1);
         setLoading(false);
+        setError(null);
         return;
         
       } catch (error) {
-        console.error(`Attempt ${attempt} failed:`, error);
+        console.error(`❌ Attempt ${attempt} failed:`, error);
         
-        if (attempt === 3) {
-          setError(`Не вдалося підключитися до API після 3 спроб. URL: ${API_URL}`);
+        if (attempt === maxAttempts) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          setError(`Не вдалося підключитися до API після ${maxAttempts} спроб.\n\nURL: ${API_URL}\nError: ${errorMsg}`);
           setLoading(false);
+          setComments([]);
         } else {
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          // Exponential backoff
+          const delay = 1000 * Math.pow(2, attempt - 1);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
@@ -150,20 +197,51 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Комментарии</h1>
-        <small>API: {API_URL}</small>
+        <h1>💬 Комментарі</h1>
+        <div style={{ fontSize: '0.9rem', marginTop: '10px' }}>
+          <div>API: {API_URL}</div>
+          <div style={{ 
+            display: 'inline-block',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            marginTop: '5px',
+            background: connectionStatus === 'connected' ? '#27ae60' : 
+                       connectionStatus === 'connecting' ? '#f39c12' :
+                       connectionStatus === 'reconnecting' ? '#e67e22' : '#e74c3c'
+          }}>
+            SignalR: {connectionStatus}
+          </div>
+        </div>
       </header>
       
       <main className="app-main">
         {error && (
           <div style={{
-            padding: '15px',
+            padding: '20px',
             background: '#fee',
             color: '#c33',
-            borderRadius: '5px',
-            marginBottom: '20px'
+            borderRadius: '8px',
+            marginBottom: '20px',
+            border: '2px solid #c33',
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'monospace'
           }}>
-            <strong>Помилка:</strong> {error}
+            <strong>❌ Помилка підключення</strong>
+            <div style={{ marginTop: '10px' }}>{error}</div>
+            <button 
+              onClick={loadComments}
+              style={{
+                marginTop: '15px',
+                padding: '10px 20px',
+                background: '#3498db',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Спробувати знову
+            </button>
           </div>
         )}
         
@@ -171,39 +249,60 @@ function App() {
         
         <div className="sort-controls">
           <button onClick={() => handleSort('userName')}>
-            Сортувати по імені {sortBy === 'userName' && (ascending ? '↑' : '↓')}
+            👤 Ім'я {sortBy === 'userName' && (ascending ? '↑' : '↓')}
           </button>
           <button onClick={() => handleSort('email')}>
-            Сортувати по email {sortBy === 'email' && (ascending ? '↑' : '↓')}
+            📧 Email {sortBy === 'email' && (ascending ? '↑' : '↓')}
           </button>
           <button onClick={() => handleSort('createdAt')}>
-            Сортувати по даті {sortBy === 'createdAt' && (ascending ? '↑' : '↓')}
+            📅 Дата {sortBy === 'createdAt' && (ascending ? '↑' : '↓')}
           </button>
         </div>
 
         {loading ? (
-          <div className="loading">Завантаження...</div>
+          <div className="loading">
+            <div style={{ fontSize: '2rem' }}>⏳</div>
+            <div>Завантаження...</div>
+          </div>
         ) : comments.length === 0 ? (
-          <div className="loading">Немає коментарів</div>
+          <div className="loading">
+            <div style={{ fontSize: '2rem' }}>💬</div>
+            <div>Немає коментарів. Будьте першим!</div>
+          </div>
         ) : (
-          <CommentList comments={comments} />
+          <>
+            <div style={{ 
+              padding: '10px', 
+              background: '#ecf0f1', 
+              borderRadius: '4px',
+              marginBottom: '15px',
+              textAlign: 'center'
+            }}>
+              📊 Показано {comments.length} з {totalPages * 25} коментарів
+            </div>
+            <CommentList comments={comments} />
+          </>
         )}
 
-        <div className="pagination">
-          <button 
-            onClick={() => setPage(p => Math.max(1, p - 1))} 
-            disabled={page === 1}
-          >
-            Назад
-          </button>
-          <span>Сторінка {page} з {totalPages}</span>
-          <button 
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
-            disabled={page === totalPages}
-          >
-            Вперед
-          </button>
-        </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <button 
+              onClick={() => setPage(p => Math.max(1, p - 1))} 
+              disabled={page === 1 || loading}
+            >
+              ⬅️ Назад
+            </button>
+            <span style={{ fontWeight: 'bold' }}>
+              Сторінка {page} / {totalPages}
+            </span>
+            <button 
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+              disabled={page === totalPages || loading}
+            >
+              Вперед ➡️
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
