@@ -49,31 +49,57 @@ public class CommentRepository : ICommentRepository
         string sortBy, 
         bool ascending)
     {
-        var query = _context.Comments
+        // Завантажуємо ВСІ коментарі з усіма вкладеними рівнями
+        var allComments = await _context.Comments
             .Include(c => c.User)
-            .Include(c => c.Replies)
-                .ThenInclude(r => r.User)
-            .Where(c => c.ParentCommentId == null);
+            .AsNoTracking()
+            .ToListAsync();
+        
+        // Функція для рекурсивного завантаження replies
+        void LoadReplies(Comment comment)
+        {
+            var replies = allComments.Where(c => c.ParentCommentId == comment.Id).ToList();
+            foreach (var reply in replies)
+            {
+                // Завантажуємо User для reply
+                reply.User = allComments.First(c => c.Id == reply.Id).User;
+                comment.Replies.Add(reply);
+                
+                // РЕКУРСІЯ: Завантажуємо replies для цього reply
+                LoadReplies(reply);
+            }
+        }
+        
+        // Отримуємо тільки топ-левел коментарі
+        var topLevelComments = allComments
+            .Where(c => c.ParentCommentId == null)
+            .ToList();
+        
+        // Завантажуємо всі вкладені replies для кожного топ-левел коментаря
+        foreach (var comment in topLevelComments)
+        {
+            LoadReplies(comment);
+        }
         
         // Сортування
-        query = sortBy.ToLower() switch
+        IEnumerable<Comment> sortedComments = sortBy.ToLower() switch
         {
             "username" => ascending 
-                ? query.OrderBy(c => c.User.UserName) 
-                : query.OrderByDescending(c => c.User.UserName),
+                ? topLevelComments.OrderBy(c => c.User.UserName) 
+                : topLevelComments.OrderByDescending(c => c.User.UserName),
             "email" => ascending 
-                ? query.OrderBy(c => c.User.Email) 
-                : query.OrderByDescending(c => c.User.Email),
+                ? topLevelComments.OrderBy(c => c.User.Email) 
+                : topLevelComments.OrderByDescending(c => c.User.Email),
             _ => ascending 
-                ? query.OrderBy(c => c.CreatedAt) 
-                : query.OrderByDescending(c => c.CreatedAt)
+                ? topLevelComments.OrderBy(c => c.CreatedAt) 
+                : topLevelComments.OrderByDescending(c => c.CreatedAt)
         };
         
-        var totalCount = await query.CountAsync();
-        var items = await query
+        var totalCount = topLevelComments.Count;
+        var items = sortedComments
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToList();
         
         return new PagedResult<Comment>
         {
